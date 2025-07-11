@@ -1,0 +1,9 @@
+/target
+Cargo.lock
+
+*.db
+rsmtpd
+
+.idea
+*.swp
+*Zone.Identifier
