@@ -3,12 +3,11 @@ use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::str;
 use tokio::net::TcpStream;
-use crate::smtp::Smtp;
+use crate::smtp::{Smtp, StateKind};
 
 pub struct ConnectionHandler<'a>{
     socket: &'a TcpStream,
     addr: &'a SocketAddr,
-    expect: Option<String>,
 }
 
 impl ConnectionHandler<'_> {
@@ -16,7 +15,6 @@ impl ConnectionHandler<'_> {
         ConnectionHandler {
             socket,
             addr,
-            expect: None,
         }
     }
     
@@ -49,7 +47,10 @@ impl ConnectionHandler<'_> {
                         }
                     };
 
-                    smtp.handle(v).await;
+                    match smtp.handle(v).await? {
+                        StateKind::ENDSTATE => break,
+                        StateKind::KEEPGOING => (),
+                    };
                 }
 
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {

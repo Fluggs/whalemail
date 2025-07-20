@@ -25,4 +25,5 @@ async fn process_socket_silent(socket: TcpStream, addr: SocketAddr) {
         Ok(()) => (),
         Err(err) => println!("{err}")
     }
+    println!("Closing connection from {}:{}", addr.ip(), addr.port());
 }
