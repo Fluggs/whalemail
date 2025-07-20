@@ -73,16 +73,22 @@ impl Command {
         let mut split = s.split(" ");
         let verb: &str = match split.next() {
             Some(r) => r,
-            None => return Err(SmtpPreError {
-                msg: s,
-            })
+            None => {
+                println!("no next");
+                return Err(SmtpPreError {
+                    msg: s,
+                })
+            }
         };
         
         let verb = SmtpState::from(match verb.parse() {
             Ok(r) => r,
-            Err(_) => return Err(SmtpPreError {
-                msg: s,
-            })
+            Err(err) => {
+                println!("parse failed: {}", err);
+                return Err(SmtpPreError {
+                    msg: s,
+                })
+            }
         });
         
         let r = Command {
@@ -147,15 +153,15 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             SmtpState::EHLO => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::INIT)
             },
             SmtpState::HELO => {
-                self.conn.send("250 OK".to_string()).await?;
+                self.conn.send("250 OK\r\n".to_string()).await?;
                 Ok(SmtpState::HELO)
             }
             _ => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::INIT)
             }
         }
@@ -170,11 +176,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             SmtpState::MAIL => {
-                self.conn.send("250 OK".to_string()).await?;
+                self.conn.send("250 OK\r\n".to_string()).await?;
                 Ok(SmtpState::MAIL)
             },
             _ => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::CANCELLED)
             }
         }
@@ -184,11 +190,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             SmtpState::RCPT => {
-                self.conn.send("250 OK".to_string()).await?;
+                self.conn.send("250 OK\r\n".to_string()).await?;
                 Ok(SmtpState::RCPT)
             },
             _ => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::CANCELLED)
             }
         }
@@ -198,11 +204,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             SmtpState::DATA => {
-                self.conn.send("354 start mail input".to_string()).await?;
+                self.conn.send("354 start mail input\r\n".to_string()).await?;
                 Ok(SmtpState::DATA)
             },
             _ => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::CANCELLED)
             }
         }
@@ -212,11 +218,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             SmtpState::MAIL => {
-                self.conn.send("250 OK".to_string()).await?;
+                self.conn.send("250 OK\r\n".to_string()).await?;
                 Ok(SmtpState::MAIL)
             },
             _ => {
-                self.conn.send("554 leave me alone".to_string()).await?;
+                self.conn.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(SmtpState::CANCELLED)
             }
         }

@@ -89,7 +89,7 @@ impl ConnectionHandler<'_> {
                 }
             }
         }
-        println!("Trying to send {msg}");
+        println!("-- {msg}");
         
         Ok(())
     }
