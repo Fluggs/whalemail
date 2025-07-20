@@ -5,7 +5,7 @@ use crate::net::ConnectionHandler;
 
 /// Used in cases where we don't know the current state to be turned into a proper SmtpError later
 struct SmtpPreError {
-    msg: String,    
+    msg: String,
 }
 
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ impl SmtpError {
             msg,
         }
     }
-    
+
     fn from(pre_err: SmtpPreError, state: SmtpState) -> SmtpError {
         SmtpError::new(state, pre_err.msg)
     }
@@ -70,7 +70,7 @@ impl fmt::Display for Command {
 
 impl Command {
     fn new(s: String) -> Result<Command, SmtpPreError> {
-        let mut split = s.split(" ");
+        let mut split = s.trim().split(" ");
         let verb: &str = match split.next() {
             Some(r) => r,
             None => {
@@ -79,8 +79,9 @@ impl Command {
                     msg: s,
                 })
             }
-        };
-        
+        }
+            .trim();
+
         let verb = SmtpState::from(match verb.parse() {
             Ok(r) => r,
             Err(err) => {
@@ -90,12 +91,12 @@ impl Command {
                 })
             }
         });
-        
+
         let r = Command {
             verb,
             argstring: split.collect::<Vec<_>>().join(" "),
         };
-        
+
         println!("Built command '{}' from input '{}'", r, s);
         Ok(r)
     }
@@ -125,7 +126,7 @@ impl Smtp<'_> {
                 return Ok(StateKind::ENDSTATE)
             }
         };
-        
+
         let r = match self.state {
             SmtpState::INIT => self.state_init(cmd).await,
             SmtpState::EHLO => self.state_ehlo(cmd).await,
@@ -137,7 +138,7 @@ impl Smtp<'_> {
             SmtpState::CANCELLED => self.state_cancelled(cmd).await,
             SmtpState::IOERROR => self.state_ioerror(cmd).await,
         };
-        
+
         match r {
             Ok(state) => self.state = state,
             Err(err) => {
@@ -148,7 +149,7 @@ impl Smtp<'_> {
         
         Ok(StateKind::KEEPGOING)
     }
-    
+
     async fn state_init(&mut self, cmd: Command) -> Result<SmtpState, io::Error> {
         println!("{cmd}");
         match cmd.verb {
