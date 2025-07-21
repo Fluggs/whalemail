@@ -36,7 +36,7 @@ impl ConnectionHandler<'_> {
                     break
                 },
                 Ok(n) => {
-                    let v = match str::from_utf8(&buf) {
+                    let v = match str::from_utf8(&buf[..n]) { // todo consider from_utf8_lossy
                         Ok(v) => v.to_string(),
                         Err(_) => {
                             let s = buf[..n].iter()
