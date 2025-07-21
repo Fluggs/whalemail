@@ -1,5 +1,6 @@
 mod smtp;
 mod net;
+mod util;
 
 use tokio::net::{TcpListener, TcpStream};
 use std::io;
@@ -8,6 +9,9 @@ use net::ConnectionHandler;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
+    let s = "helo\n";
+    let p = "ho\r\n";
+    println!("s: '{}', p: '{}'", s.trim(), p.trim());
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
     
     loop {

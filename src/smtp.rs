@@ -2,6 +2,7 @@ use std::io;
 use std::fmt;
 use strum::{Display, EnumString};
 use crate::net::ConnectionHandler;
+use crate::util::string_as_bytes;
 
 /// Used in cases where we don't know the current state to be turned into a proper SmtpError later
 struct SmtpPreError {
@@ -122,7 +123,7 @@ impl Smtp<'_> {
         let cmd = match Command::new(input) {
             Ok(r) => r,
             Err(err) => {
-                println!("Unexpected SMTP command message: {}", err.msg);
+                println!("Unexpected SMTP command message: '{}' ({})", err.msg, string_as_bytes(&err.msg));
                 return Ok(StateKind::ENDSTATE)
             }
         };
