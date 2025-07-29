@@ -130,7 +130,6 @@ impl Command {
             remainder: split.collect::<Vec<_>>().join(" "),
         };
 
-        println!("Built command '{}' from input '{}'", r, s);
         Ok(r)
     }
 }
@@ -160,6 +159,10 @@ impl Smtp<'_> {
             }
         };
 
+        println!("Command: {}", match &cmd.verb {
+            Some(v) => format!("{v}"),
+            None => "<data input>".to_string()
+        });
         let r = match self.state {
 
             // INIT -> HELO, INIT -> EHLO, FAIL -> INIT
@@ -304,7 +307,7 @@ impl Smtp<'_> {
         match cmd.verb {
             None => {
                 println!("Mail!: {}", cmd.remainder);
-                Ok(StateTransition::from(SmtpState::CANCELLED))
+                Ok(StateTransition::from(SmtpState::DATAINPUT))
             }
             Some(v) => {
                 println!("Unexpected {} after {}, expected mail input", v, self.state);
