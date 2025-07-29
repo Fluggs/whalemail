@@ -307,6 +307,7 @@ impl Smtp<'_> {
         match cmd.verb {
             None => {
                 println!("Mail!: {}", cmd.remainder);
+                self.conn.send(&"250 OK\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATAINPUT))
             }
             Some(v) => {
