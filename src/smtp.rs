@@ -43,6 +43,7 @@ enum SmtpState {
     RCPT,
     DATA,
     DATAINPUT,
+    QUIT,
     CANCELLED,
     IOERROR,
 }
@@ -229,22 +230,39 @@ impl Smtp<'_> {
                     next_state_kind: StateKind::KEEPGOING
                 }
             ).await,
+
+            // MAIL -> RCPT
+            SmtpState::DATAINPUT => self.expect_simple_command(
+                cmd, &[
+                    SimpleResponse {
+                        expect: SmtpState::QUIT,
+                        response: "221 closing channel\r\n".to_string(),
+                        next_state_kind: StateKind::ENDSTATE
+                    }
+                ],
+                &SimpleResponse {
+                    expect: SmtpState::QUIT,
+                    response: "554 what u doing\r\n".to_string(),
+                    next_state_kind: StateKind::ENDSTATE
+                }
+            ).await,
             SmtpState::RCPT => self.state_rcpt(cmd).await,
             SmtpState::DATA => self.state_data(cmd).await,
-            SmtpState::DATAINPUT => self.state_rcpt(cmd).await,
             SmtpState::CANCELLED => self.state_cancelled(cmd).await,
             SmtpState::IOERROR => self.state_ioerror(cmd).await,
+            SmtpState::QUIT => self.state_cancelled(cmd).await,
         };
 
         match r {
-            Ok(transition) => self.state = transition.next_state,
+            Ok(transition) => {
+                self.state = transition.next_state;
+                Ok(transition.state_kind)
+            },
             Err(err) => {
                 self.state = SmtpState::IOERROR;
-                return Err(err);
+                Err(err)
             }
         }
-        
-        Ok(StateKind::KEEPGOING)
     }
 
     async fn expect_simple_command(&mut self, cmd: Command, paths: &[SimpleResponse],
@@ -286,6 +304,10 @@ impl Smtp<'_> {
                 self.conn.send(&"250 OK\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::MAIL))
             },
+            None => {
+                println!("Mail!: {}", cmd.remainder);
+                Ok(StateTransition::from(SmtpState::CANCELLED))
+            }
             _ => {
                 self.conn.send(&"554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
