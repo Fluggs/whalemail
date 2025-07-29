@@ -302,15 +302,12 @@ impl Smtp<'_> {
     async fn state_data(&mut self, cmd: Command) -> Result<StateTransition, io::Error> {
         println!("{cmd}");
         match cmd.verb {
-            Some(SmtpState::MAIL) => {
-                self.conn.send(&"250 OK\r\n".to_string()).await?;
-                Ok(StateTransition::from(SmtpState::MAIL))
-            },
             None => {
                 println!("Mail!: {}", cmd.remainder);
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }
-            _ => {
+            Some(v) => {
+                println!("Unexpected {} after {}, expected mail input", v, self.state);
                 self.conn.send(&"554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }

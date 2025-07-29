@@ -36,6 +36,7 @@ impl ConnectionHandler<'_> {
                     break
                 },
                 Ok(n) => {
+                    println!("---- Reading {n} bytes");
                     let v = match str::from_utf8(&buf[..n]) { // todo consider from_utf8_lossy
                         Ok(v) => v.to_string(),
                         Err(_) => {
@@ -89,7 +90,7 @@ impl ConnectionHandler<'_> {
                 }
             }
         }
-        println!("-- {msg}");
+        println!("---- {msg}");
         
         Ok(())
     }
