@@ -71,7 +71,7 @@ impl From<SmtpState> for StateTransition {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum StateKind {
     KEEPGOING,
     ENDSTATE
@@ -112,7 +112,7 @@ impl Command {
         let verb: &str = match split.next() {
             Some(r) => r,
             None => {
-                println!("no next");
+                println!("not enough split parts in '{}'", s);
                 return Err(SmtpPreError {
                     msg: s,
                 })
@@ -255,10 +255,12 @@ impl Smtp<'_> {
 
         match r {
             Ok(transition) => {
+                println!("Transitioning: {} -> {} ({:?})", self.state, transition.next_state, transition.state_kind);
                 self.state = transition.next_state;
                 Ok(transition.state_kind)
             },
             Err(err) => {
+                eprintln!("Error state ({})", err);
                 self.state = SmtpState::IOERROR;
                 Err(err)
             }
