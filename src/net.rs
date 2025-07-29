@@ -65,7 +65,7 @@ impl ConnectionHandler<'_> {
         Ok(())
     }
     
-    pub async fn send(&self, msg: String) -> io::Result<()> {
+    pub async fn send(&self, msg: &String) -> io::Result<()> {
         self.socket.writable().await?;
 
         loop {
