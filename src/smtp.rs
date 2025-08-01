@@ -3,6 +3,8 @@ use std::fmt;
 use strum::{Display, EnumString};
 use crate::net::ConnectionHandler;
 use crate::util::string_as_bytes;
+use crate::tests;
+use crate::tests::SmtpTest;
 
 /// Used in cases where we don't know the current state to be turned into a proper SmtpError later
 struct SmtpPreError {
@@ -77,12 +79,6 @@ pub enum StateKind {
     ENDSTATE
 }
 
-pub struct Smtp<'a> {
-    conn: &'a ConnectionHandler<'a>,
-    pub closed: bool,
-    state: SmtpState,
-}
-
 struct Command {
     verb: Option<SmtpState>,
     remainder: String
@@ -134,17 +130,37 @@ impl Command {
     }
 }
 
+pub struct Smtp<'a> {
+    conn: Option<&'a ConnectionHandler<'a>>,
+    pub closed: bool,
+    state: SmtpState,
+    conn_testbed: Option<&'a SmtpTest>,
+}
+
 impl Smtp<'_> {
     pub fn new<'a> (connhandler: &'a ConnectionHandler) -> Smtp<'a> {
         Smtp {
-            conn: connhandler,
+            conn: Some(connhandler),
             closed: false,
-            state: SmtpState::INIT
+            state: SmtpState::INIT,
+            conn_testbed: None,
+        }
+    }
+    
+    async fn send(&mut self, s: &String) -> io::Result<()> {
+        match self.conn {
+            Some(c) => c.send(s).await,
+            None => {
+                let a = self.conn_testbed;
+                let mut a = a.unwrap();
+                a.last_msg = s;
+                a.send(s)
+            },
         }
     }
     
     pub async fn init_smtp(&mut self) -> io::Result<()> {
-        self.conn.send(&"220 hi\r\n".to_string()).await?;
+        self.send(&"220 hi\r\n".to_string()).await?;
         self.state = SmtpState::INIT;
         
         Ok(())
@@ -276,7 +292,7 @@ impl Smtp<'_> {
         for path in paths {
             match cmd.verb {
                 Some(verb) if verb == path.expect => {
-                    self.conn.send(&path.response).await?;
+                    self.send(&path.response).await?;
                     return Ok(StateTransition::from(path));
                 }
                 Some(_) => (),
@@ -284,7 +300,7 @@ impl Smtp<'_> {
             }
         }
         
-        self.conn.send(&fail_path.response).await?;
+        self.send(&fail_path.response).await?;
         Ok(StateTransition::from(fail_path))
     }
 
@@ -292,11 +308,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             Some(SmtpState::DATA) => {
-                self.conn.send(&"354 start mail input\r\n".to_string()).await?;
+                self.send(&"354 start mail input\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATA))
             },
             _ => {
-                self.conn.send(&"554 leave me alone\r\n".to_string()).await?;
+                self.send(&"554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }
         }
@@ -307,12 +323,12 @@ impl Smtp<'_> {
         match cmd.verb {
             None => {
                 println!("Mail!: {}", cmd.remainder);
-                self.conn.send(&"250 OK\r\n".to_string()).await?;
+                self.send(&"250 OK\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATAINPUT))
             }
             Some(v) => {
                 println!("Unexpected {} after {}, expected mail input", v, self.state);
-                self.conn.send(&"554 leave me alone\r\n".to_string()).await?;
+                self.send(&"554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }
         }

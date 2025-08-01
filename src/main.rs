@@ -1,6 +1,7 @@
 mod smtp;
 mod net;
 mod util;
+mod tests;
 
 use tokio::net::{TcpListener, TcpStream};
 use std::io;
