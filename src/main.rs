@@ -5,7 +5,6 @@ mod tests;
 
 use tokio::net::{TcpListener, TcpStream};
 use std::io;
-use std::str;
 use std::net::SocketAddr;
 use net::ConnectionHandler;
 

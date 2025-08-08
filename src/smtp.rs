@@ -37,7 +37,7 @@ impl SmtpError {
 }
 
 #[derive(Debug, Clone, Display, EnumString, PartialEq)]
-enum SmtpState {
+pub(crate) enum SmtpState {
     INIT,
     HELO,
     EHLO,
@@ -55,11 +55,11 @@ struct StateTransition {
     state_kind: StateKind,
 }
 
-impl From<&SimpleResponse> for StateTransition {
-    fn from(res: &SimpleResponse) -> Self {
+impl From<SimpleResponse> for StateTransition {
+    fn from(res: SimpleResponse) -> Self {
         StateTransition {
-            next_state: res.expect.clone(),
-            state_kind: res.next_state_kind.clone(),
+            next_state: res.expect,
+            state_kind: res.next_state_kind,
         }
     }
 }
@@ -134,7 +134,7 @@ pub struct Smtp<'a> {
     conn: Option<&'a ConnectionHandler<'a>>,
     pub closed: bool,
     state: SmtpState,
-    conn_testbed: Option<&'a SmtpTest>,
+    pub conn_testbed: Option<SmtpTest>,
 }
 
 impl Smtp<'_> {
@@ -147,20 +147,26 @@ impl Smtp<'_> {
         }
     }
     
-    async fn send(&mut self, s: &String) -> io::Result<()> {
+    pub fn testing<'a>(conn_testbed: SmtpTest) -> Smtp<'a> {
+        Smtp {
+            conn: None,
+            closed: false,
+            state: SmtpState::INIT,
+            conn_testbed: Some(conn_testbed),
+        }
+    }
+    
+    async fn send(&mut self, s: String) -> io::Result<()> {
         match self.conn {
             Some(c) => c.send(s).await,
             None => {
-                let a = self.conn_testbed;
-                let mut a = a.unwrap();
-                a.last_msg = s;
-                a.send(s)
+                self.conn_testbed.as_mut().unwrap().send(s)
             },
         }
     }
     
     pub async fn init_smtp(&mut self) -> io::Result<()> {
-        self.send(&"220 hi\r\n".to_string()).await?;
+        self.send("220 hi\r\n".to_string()).await?;
         self.state = SmtpState::INIT;
         
         Ok(())
@@ -183,19 +189,19 @@ impl Smtp<'_> {
 
             // INIT -> HELO, INIT -> EHLO, FAIL -> INIT
             // todo timeout; todo avoid infinite loop INIT -> FAIL -> INIT
-            SmtpState::INIT => self.expect_simple_command(cmd, &[
-                    SimpleResponse {
-                        expect: SmtpState::HELO,
-                        response: "250 OK\r\n".to_string(),
-                        next_state_kind: StateKind::KEEPGOING,
-                    },
-                    SimpleResponse {
-                        expect: SmtpState::EHLO,
-                        response: "250 OK\r\n".to_string(),
-                        next_state_kind: StateKind::KEEPGOING,
-                    },
-                ],
-                &SimpleResponse {
+            SmtpState::INIT => self.expect_simple_command(cmd, Box::from([
+                SimpleResponse {
+                    expect: SmtpState::HELO,
+                    response: "250 OK\r\n".to_string(),
+                    next_state_kind: StateKind::KEEPGOING,
+                },
+                SimpleResponse {
+                    expect: SmtpState::EHLO,
+                    response: "250 OK\r\n".to_string(),
+                    next_state_kind: StateKind::KEEPGOING,
+                },
+            ]),
+            SimpleResponse {
                     expect: SmtpState::INIT,
                     response: "554 what u doing\r\n".to_string(),
                     next_state_kind: StateKind::KEEPGOING
@@ -204,14 +210,14 @@ impl Smtp<'_> {
 
             // EHLO -> MAIL
             SmtpState::EHLO => self.expect_simple_command(
-                cmd, &[
+                cmd, Box::from([
                     SimpleResponse {
                         expect: SmtpState::MAIL,
                         response: "250 OK\r\n".to_string(),
                         next_state_kind: StateKind::KEEPGOING
                     }
-                ],
-                &SimpleResponse {
+                ]),
+                SimpleResponse {
                     expect: SmtpState::INIT,
                     response: "554 what u doing\r\n".to_string(),
                     next_state_kind: StateKind::KEEPGOING
@@ -220,14 +226,14 @@ impl Smtp<'_> {
 
             // HELO -> MAIL
             SmtpState::HELO => self.expect_simple_command(
-                cmd, &[
+                cmd, Box::from([
                     SimpleResponse {
                         expect: SmtpState::MAIL,
                         response: "250 OK\r\n".to_string(),
                         next_state_kind: StateKind::KEEPGOING
                     }
-                ],
-                &SimpleResponse {
+                ]),
+                SimpleResponse {
                     expect: SmtpState::INIT,
                     response: "554 what u doing\r\n".to_string(),
                     next_state_kind: StateKind::KEEPGOING
@@ -236,14 +242,14 @@ impl Smtp<'_> {
 
             // MAIL -> RCPT
             SmtpState::MAIL => self.expect_simple_command(
-                cmd, &[
+                cmd, Box::from([
                     SimpleResponse {
                         expect: SmtpState::RCPT,
                         response: "250 OK\r\n".to_string(),
                         next_state_kind: StateKind::KEEPGOING
                     }
-                ],
-                &SimpleResponse {
+                ]),
+                SimpleResponse {
                     expect: SmtpState::MAIL,
                     response: "554 what u doing\r\n".to_string(),
                     next_state_kind: StateKind::KEEPGOING
@@ -252,14 +258,14 @@ impl Smtp<'_> {
 
             // MAIL -> RCPT
             SmtpState::DATAINPUT => self.expect_simple_command(
-                cmd, &[
+                cmd, Box::from([
                     SimpleResponse {
                         expect: SmtpState::QUIT,
                         response: "221 closing channel\r\n".to_string(),
                         next_state_kind: StateKind::ENDSTATE
                     }
-                ],
-                &SimpleResponse {
+                ]),
+                SimpleResponse {
                     expect: SmtpState::QUIT,
                     response: "554 what u doing\r\n".to_string(),
                     next_state_kind: StateKind::ENDSTATE
@@ -286,13 +292,13 @@ impl Smtp<'_> {
         }
     }
 
-    async fn expect_simple_command(&mut self, cmd: Command, paths: &[SimpleResponse],
-                                       fail_path: &SimpleResponse) -> io::Result<StateTransition>
+    async fn expect_simple_command(&mut self, cmd: Command, paths: Box<[SimpleResponse]>,
+                                   fail_path: SimpleResponse) -> io::Result<StateTransition>
     {
         for path in paths {
             match cmd.verb {
                 Some(verb) if verb == path.expect => {
-                    self.send(&path.response).await?;
+                    self.send(path.response.clone()).await?;
                     return Ok(StateTransition::from(path));
                 }
                 Some(_) => (),
@@ -300,7 +306,7 @@ impl Smtp<'_> {
             }
         }
         
-        self.send(&fail_path.response).await?;
+        self.send(fail_path.response.clone()).await?;
         Ok(StateTransition::from(fail_path))
     }
 
@@ -308,11 +314,11 @@ impl Smtp<'_> {
         println!("{cmd}");
         match cmd.verb {
             Some(SmtpState::DATA) => {
-                self.send(&"354 start mail input\r\n".to_string()).await?;
+                self.send("354 start mail input\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATA))
             },
             _ => {
-                self.send(&"554 leave me alone\r\n".to_string()).await?;
+                self.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }
         }
@@ -323,12 +329,12 @@ impl Smtp<'_> {
         match cmd.verb {
             None => {
                 println!("Mail!: {}", cmd.remainder);
-                self.send(&"250 OK\r\n".to_string()).await?;
+                self.send("250 OK\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATAINPUT))
             }
             Some(v) => {
                 println!("Unexpected {} after {}, expected mail input", v, self.state);
-                self.send(&"554 leave me alone\r\n".to_string()).await?;
+                self.send("554 leave me alone\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::CANCELLED))
             }
         }
