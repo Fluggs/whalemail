@@ -74,6 +74,7 @@ impl From<SmtpState> for StateTransition {
 }
 
 #[derive(Clone, Debug)]
+#[derive(PartialEq)]
 pub enum StateKind {
     KEEPGOING,
     ENDSTATE
@@ -130,34 +131,38 @@ impl Command {
     }
 }
 
-pub struct Smtp<'a> {
-    conn: Option<&'a ConnectionHandler<'a>>,
-    pub closed: bool,
-    state: SmtpState,
-    pub conn_testbed: Option<SmtpTest>,
+pub struct Mail {
+    pub recipients: Vec<String>
 }
 
-impl Smtp<'_> {
-    pub fn new<'a> (connhandler: &'a ConnectionHandler) -> Smtp<'a> {
+pub struct Smtp {
+    pub conn: Option<ConnectionHandler>,
+    pub conn_testbed: Option<SmtpTest>,
+    pub closed: bool,
+    
+    pub(crate) state: SmtpState,
+    pub(crate) mail: Mail,
+    pub(crate) last_cmd_complete: bool,
+    pub(crate) msg_buf: String,
+}
+
+impl Smtp {
+    pub fn new (connhandler: ConnectionHandler) -> Smtp {
         Smtp {
             conn: Some(connhandler),
-            closed: false,
-            state: SmtpState::INIT,
             conn_testbed: None,
-        }
-    }
-    
-    pub fn testing<'a>(conn_testbed: SmtpTest) -> Smtp<'a> {
-        Smtp {
-            conn: None,
             closed: false,
             state: SmtpState::INIT,
-            conn_testbed: Some(conn_testbed),
+            mail: Mail {
+                recipients: Vec::new(),
+            },
+            last_cmd_complete: true,
+            msg_buf: "".to_string(),
         }
     }
     
     async fn send(&mut self, s: String) -> io::Result<()> {
-        match self.conn {
+        match &self.conn {
             Some(c) => c.send(s).await,
             None => {
                 self.conn_testbed.as_mut().unwrap().send(s)
@@ -256,7 +261,7 @@ impl Smtp<'_> {
                 }
             ).await,
 
-            // MAIL -> RCPT
+            // DATINPUT -> QUIT
             SmtpState::DATAINPUT => self.expect_simple_command(
                 cmd, Box::from([
                     SimpleResponse {

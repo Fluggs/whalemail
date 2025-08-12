@@ -5,20 +5,20 @@ use std::str;
 use tokio::net::TcpStream;
 use crate::smtp::{Smtp, StateKind};
 
-pub struct ConnectionHandler<'a>{
-    socket: &'a TcpStream,
-    addr: &'a SocketAddr,
+pub struct ConnectionHandler {
+    socket: TcpStream,
+    addr: SocketAddr,
 }
 
-impl ConnectionHandler<'_> {
-    pub fn new<'a> (socket: &'a TcpStream, addr: &'a SocketAddr) -> ConnectionHandler<'a> {
+impl ConnectionHandler {
+    pub fn new<'a> (socket: TcpStream, addr: SocketAddr) -> ConnectionHandler {
         ConnectionHandler {
             socket,
             addr,
         }
     }
     
-    pub async fn process_socket(&self) -> io::Result<()> {
+    pub async fn process_socket(self) -> io::Result<()> {
         let mut smtp = Smtp::new(self);
         smtp.init_smtp().await?;
         
@@ -27,10 +27,10 @@ impl ConnectionHandler<'_> {
                 // drop closes socket
                 break;
             }
-            self.socket.readable().await?;
+            smtp.conn.as_ref().unwrap().socket.readable().await?;
 
             let mut buf = [0; 4096];
-            match self.socket.try_read(&mut buf) {
+            match smtp.conn.as_ref().unwrap().socket.try_read(&mut buf) {
                 Ok(0) => {
                     println!("Connection closed by client.");
                     break
