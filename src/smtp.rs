@@ -1,40 +1,10 @@
-use std::io;
 use std::fmt;
 use strum::{Display, EnumString};
 use crate::net::ConnectionHandler;
 use crate::util::string_as_bytes;
-use crate::tests;
 use crate::tests::SmtpTest;
-
-/// Used in cases where we don't know the current state to be turned into a proper SmtpError later
-struct SmtpPreError {
-    msg: String,
-}
-
-#[derive(Debug, Clone)]
-struct SmtpError {
-    state: SmtpState,
-    msg: String,
-}
-
-impl fmt::Display for SmtpError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SMTP State {}: Unexpected message: {}", self.state, self.msg)
-    }
-}
-
-impl SmtpError {
-    fn new(state: SmtpState, msg: String) -> SmtpError {
-        SmtpError {
-            state,
-            msg,
-        }
-    }
-
-    fn from(pre_err: SmtpPreError, state: SmtpState) -> SmtpError {
-        SmtpError::new(state, pre_err.msg)
-    }
-}
+use crate::smtp_error::SmtpError;
+use crate::smtp_message::SmtpMessage;
 
 #[derive(Debug, Clone, Display, EnumString, PartialEq)]
 pub(crate) enum SmtpState {
@@ -82,7 +52,7 @@ pub enum StateKind {
 
 struct Command {
     verb: Option<SmtpState>,
-    remainder: String
+    remainder: String,
 }
 
 /// Used for the simple parts of the protocol. If the Command type `expected` comes in, respond
@@ -104,15 +74,12 @@ impl fmt::Display for Command {
 }
 
 impl Command {
-    fn new(s: String) -> Result<Command, SmtpPreError> {
+    fn new(s: String) -> Result<Command, SmtpError> {
         let mut split = s.trim().split(" ");
         let verb: &str = match split.next() {
             Some(r) => r,
             None => {
-                println!("not enough split parts in '{}'", s);
-                return Err(SmtpPreError {
-                    msg: s,
-                })
+                return Err(SmtpError::bad_command(s));
             }
         }
             .trim();
@@ -131,17 +98,13 @@ impl Command {
     }
 }
 
-pub struct Mail {
-    pub recipients: Vec<String>
-}
-
 pub struct Smtp {
     pub conn: Option<ConnectionHandler>,
     pub conn_testbed: Option<SmtpTest>,
     pub closed: bool,
     
     pub(crate) state: SmtpState,
-    pub(crate) mail: Mail,
+    pub(crate) mail: SmtpMessage,
     pub(crate) last_cmd_complete: bool,
     pub(crate) msg_buf: String,
 }
@@ -153,35 +116,40 @@ impl Smtp {
             conn_testbed: None,
             closed: false,
             state: SmtpState::INIT,
-            mail: Mail {
-                recipients: Vec::new(),
-            },
+            mail: SmtpMessage::new(),
             last_cmd_complete: true,
             msg_buf: "".to_string(),
         }
     }
     
-    async fn send(&mut self, s: String) -> io::Result<()> {
+    async fn send(&mut self, s: String) -> Result<(), SmtpError> {
         match &self.conn {
-            Some(c) => c.send(s).await,
+            Some(c) => c.send(s).await
+                .or_else(|error| Err(SmtpError::from_io(error, self.state.clone()))),
             None => {
                 self.conn_testbed.as_mut().unwrap().send(s)
             },
         }
     }
     
-    pub async fn init_smtp(&mut self) -> io::Result<()> {
+    pub async fn init_smtp(&mut self) -> Result<(), SmtpError> {
         self.send("220 hi\r\n".to_string()).await?;
         self.state = SmtpState::INIT;
         
         Ok(())
     }
     
-    pub async fn handle(&mut self, input: String) -> io::Result<StateKind> {
+    /**
+    State machine for SMTP.
+    Builds a Command struct from the incoming message and calls handling functions.
+    The handling function is chosen by current state, not by incoming command.
+    Each handling function handles the command and returns the next state.
+    */
+    pub async fn handle(&mut self, input: String) -> Result<StateKind, SmtpError> {
         let cmd = match Command::new(input) {
             Ok(r) => r,
             Err(err) => {
-                println!("Unexpected SMTP command message: '{}' ({})", err.msg, string_as_bytes(&err.msg));
+                eprintln!("Unexpected SMTP command message: '{}' ({})", err.cmd, string_as_bytes(&err.cmd));
                 return Ok(StateKind::ENDSTATE)
             }
         };
@@ -298,8 +266,7 @@ impl Smtp {
     }
 
     async fn expect_simple_command(&mut self, cmd: Command, paths: Box<[SimpleResponse]>,
-                                   fail_path: SimpleResponse) -> io::Result<StateTransition>
-    {
+                                   fail_path: SimpleResponse) -> Result<StateTransition, SmtpError>    {
         for path in paths {
             match cmd.verb {
                 Some(verb) if verb == path.expect => {
@@ -315,9 +282,15 @@ impl Smtp {
         Ok(StateTransition::from(fail_path))
     }
 
-    async fn state_rcpt(&mut self, cmd: Command) -> Result<StateTransition, io::Error> {
+    async fn state_rcpt(&mut self, cmd: Command) -> Result<StateTransition, SmtpError> {
         println!("{cmd}");
         match cmd.verb {
+            Some(SmtpState::RCPT) => {
+                match self.push_rcpt(cmd) {
+                    Ok(()) => { Ok(StateTransition::from(SmtpState::RCPT)) },
+                    Err(err) => { Err(err) }
+                }
+            },
             Some(SmtpState::DATA) => {
                 self.send("354 start mail input\r\n".to_string()).await?;
                 Ok(StateTransition::from(SmtpState::DATA))
@@ -328,8 +301,36 @@ impl Smtp {
             }
         }
     }
+    
+    fn push_rcpt(&mut self, cmd: Command) -> Result<(), SmtpError> {
+        let mut split = cmd.remainder.trim().splitn(1, " ");
+        match split.next() {
+            Some("TO:") => {},
+            _ => {
+                return Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+                    .push_state(self.state.clone())
+                );
+            }
+        };
+        
+        match split.next() {
+            Some(s) => {
+                // Empty recipient
+                if s.trim().len() == 0 {
+                    return Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+                        .push_state(self.state.clone())
+                    );
+                };
+                self.mail.recipients.push(s.to_string());
+                Ok(())
+            },
+            None => Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+                .push_state(self.state.clone())
+            )
+        }
+    }
 
-    async fn state_data(&mut self, cmd: Command) -> Result<StateTransition, io::Error> {
+    async fn state_data(&mut self, cmd: Command) -> Result<StateTransition, SmtpError> {
         println!("{cmd}");
         match cmd.verb {
             None => {
@@ -345,12 +346,12 @@ impl Smtp {
         }
     }
 
-    async fn state_cancelled(&mut self, cmd: Command) -> Result<StateTransition, io::Error> {
+    async fn state_cancelled(&mut self, cmd: Command) -> Result<StateTransition, SmtpError> {
         println!("{cmd}");
         Ok(StateTransition::from(SmtpState::CANCELLED))
     }
 
-    async fn state_ioerror(&mut self, cmd: Command) -> Result<StateTransition, io::Error> {
+    async fn state_ioerror(&mut self, cmd: Command) -> Result<StateTransition, SmtpError> {
         println!("{cmd}");
         Ok(StateTransition::from(SmtpState::CANCELLED))
     }

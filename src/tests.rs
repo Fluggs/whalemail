@@ -1,19 +1,21 @@
-use std::io;
-use crate::smtp::{Mail, Smtp, SmtpState, StateKind};
+#[cfg(test)]
+use crate::smtp::{Smtp, SmtpState, StateKind};
+use crate::smtp_error::SmtpError;
+use crate::smtp_message::SmtpMessage;
 
 pub struct SmtpTest {
     pub last_msg: Option<String>,
 }
 
 impl SmtpTest {
-    pub(crate) fn expect_msg(&self, msg: &str) {
+    fn expect_msg(&self, msg: &str) {
         println!("last msg: '{}'; expectation: '{}'", self.last_msg.clone().unwrap(), msg);
         assert_eq!(self.last_msg.clone(), Some(msg.to_string()));
     }
 }
 
 impl SmtpTest {
-    pub fn send(&mut self, msg: String) -> io::Result<()> {
+    pub fn send(&mut self, msg: String) -> Result<(), SmtpError> {
         self.last_msg = Some(msg);
         Ok(())
     }
@@ -29,8 +31,9 @@ fn setup<'a>() -> Smtp {
         }),
         closed: false,
         state: SmtpState::INIT,
-        mail: Mail {
+        mail: SmtpMessage {
             recipients: Vec::new(),
+            body: None
         },
         last_cmd_complete: true,
         msg_buf: "".to_string(),

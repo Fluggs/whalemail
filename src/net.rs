@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::str;
 use tokio::net::TcpStream;
 use crate::smtp::{Smtp, StateKind};
+use crate::smtp_error::SmtpError;
 
 pub struct ConnectionHandler {
     socket: TcpStream,
@@ -20,7 +21,8 @@ impl ConnectionHandler {
     
     pub async fn process_socket(self) -> io::Result<()> {
         let mut smtp = Smtp::new(self);
-        smtp.init_smtp().await?;
+        smtp.init_smtp().await
+            .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         
         loop {
             if smtp.closed {
@@ -48,9 +50,10 @@ impl ConnectionHandler {
                         }
                     };
 
-                    match smtp.handle(v).await? {
-                        StateKind::ENDSTATE => break,
-                        StateKind::KEEPGOING => (),
+                    match smtp.handle(v).await {
+                        Ok(StateKind::ENDSTATE) => break,
+                        Ok(StateKind::KEEPGOING) => (),
+                        Err(e) => return Err(e.into())
                     };
                 }
 
