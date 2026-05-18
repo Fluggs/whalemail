@@ -1,11 +1,12 @@
 use std::fmt;
 use std::io::Error;
-use crate::smtp::SmtpState;
+use crate::smtp::{SmtpState};
 
 #[derive(Debug, Clone)]
 #[derive(PartialEq)]
 pub(crate) enum ErrorKind {
     BADCOMMAND,
+    BADSEQUENCE,
     IOERROR,
 }
 
@@ -45,6 +46,15 @@ impl SmtpError {
         SmtpError {
             kind: ErrorKind::BADCOMMAND,
             state: None,
+            cmd,
+            io_error: None,
+        }
+    }
+    
+    pub(crate) fn bad_sequence(cmd: String, state: SmtpState) -> SmtpError {
+        SmtpError {
+            kind: ErrorKind::BADSEQUENCE,
+            state: Some(state),
             cmd,
             io_error: None,
         }

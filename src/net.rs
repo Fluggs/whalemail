@@ -51,8 +51,8 @@ impl ConnectionHandler {
                     };
 
                     match smtp.handle(v).await {
-                        Ok(StateKind::ENDSTATE) => break,
-                        Ok(StateKind::KEEPGOING) => (),
+                        Ok(StateKind::QUIT) => break,
+                        Ok(StateKind::CONTINUE) => (),
                         Err(e) => return Err(e.into())
                     };
                 }

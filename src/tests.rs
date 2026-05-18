@@ -1,4 +1,5 @@
 #[cfg(test)]
+use env_logger::Env;
 use crate::smtp::{Smtp, SmtpState, StateKind};
 use crate::smtp_error::SmtpError;
 use crate::smtp_message::SmtpMessage;
@@ -8,9 +9,16 @@ pub struct SmtpTest {
 }
 
 impl SmtpTest {
-    fn expect_msg(&self, msg: &str) {
-        println!("last msg: '{}'; expectation: '{}'", self.last_msg.clone().unwrap(), msg);
-        assert_eq!(self.last_msg.clone(), Some(msg.to_string()));
+    fn replace_newline(&self, s: &String) -> String {
+        s.replace("\n", "\\n").replace("\r", "\\r")
+    }
+    
+    fn expect_msg(&self, expected_msg: &str) {
+        println!("last msg: '{}'; expectation: '{}'",
+                 self.replace_newline(&self.last_msg.clone().unwrap()),
+                 self.replace_newline(&expected_msg.to_string())
+        );
+        assert_eq!(self.last_msg.clone(), Some(expected_msg.to_string()));
     }
 }
 
@@ -22,8 +30,12 @@ impl SmtpTest {
 }
 
 #[cfg(test)]
-
 fn setup<'a>() -> Smtp {
+    match env_logger::Builder::from_env(Env::default().default_filter_or("debug"))
+            .is_test(true).try_init() {
+        Ok(()) => {},
+        Err(_) => {}
+    };
     Smtp {
         conn: None,
         conn_testbed: Some(SmtpTest {
@@ -82,12 +94,13 @@ async fn test_helo_mail() {
 
     let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
     s.conn_testbed.as_mut().unwrap().expect_msg("221 closing channel\r\n");
-    assert_eq!(r, StateKind::ENDSTATE);
+    assert_eq!(r, StateKind::QUIT);
 }
 
 #[tokio::test]
 async fn test_helo_multiple_rcpt() {
     let mut s = setup();
+    println!("setup!");
     s.init_smtp().await.unwrap();
     s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
 

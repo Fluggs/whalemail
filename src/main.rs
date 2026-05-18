@@ -9,9 +9,15 @@ use tokio::net::{TcpListener, TcpStream};
 use std::io;
 use std::net::SocketAddr;
 use net::ConnectionHandler;
+use env_logger;
+use log;
+use log::debug;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    debug!(target: "blub", "yam!");
+
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
     
     loop {
