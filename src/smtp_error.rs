@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io::Error;
-use crate::smtp::{SmtpState};
+use crate::smtp::{SmtpState, Command};
 
 #[derive(Debug, Clone)]
 #[derive(PartialEq)]
@@ -42,11 +42,11 @@ impl Into<Error> for SmtpError {
 }
 
 impl SmtpError {
-    pub(crate) fn bad_command(cmd: String) -> SmtpError {
+    pub(crate) fn bad_command(cmd: Command) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADCOMMAND,
             state: None,
-            cmd,
+            cmd: format!("{:?} {}",  cmd.verb.unwrap(), cmd.remainder),
             io_error: None,
         }
     }

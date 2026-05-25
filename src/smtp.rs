@@ -1,5 +1,6 @@
 use std::{fmt, io};
 use strum::{Display, EnumString};
+use strum_macros::IntoStaticStr;
 use log::{warn, debug};
 use crate::net::ConnectionHandler;
 use crate::util::string_as_bytes;
@@ -7,7 +8,7 @@ use crate::tests::SmtpTest;
 use crate::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp_message::SmtpMessage;
 
-#[derive(Debug, Clone, Display, EnumString, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum SmtpState {
     INIT,
     HELO,
@@ -62,9 +63,9 @@ pub enum StateKind {
     QUIT
 }
 
-struct Command {
-    verb: Option<SmtpState>,
-    remainder: String,
+pub(crate) struct Command {
+    pub(crate) verb: Option<SmtpState>,
+    pub(crate) remainder: String,
 }
 
 /// Used for the simple parts of the protocol. If the Command type `expected` comes in, respond
@@ -91,7 +92,12 @@ impl Command {
         let verb: &str = match split.next() {
             Some(r) => r,
             None => {
-                return Err(SmtpError::bad_command(s));
+                return Err(SmtpError {
+                    kind: ErrorKind::BADCOMMAND,
+                    state: None,
+                    cmd: s,
+                    io_error: None,
+                });
             }
         }
             .trim();
@@ -172,7 +178,13 @@ impl Smtp {
             Some(v) => format!("{v}"),
             None => "<data input>".to_string()
         });
-        
+
+        /*let r = match cmd.verb {
+            Some(SmtpState::HELO) => {
+
+            }
+        }*/
+
         let r = match self.state {
 
             // INIT -> HELO, INIT -> EHLO, FAIL -> INIT
@@ -309,8 +321,29 @@ impl Smtp {
         }
     }
 
+    /**
+    Handles a command that only needs a static response.
+
+    # Arguments
+    `cmd` command the client sent
+    `expected_state` list of origin states that allow this command
+    `response` response msg
+    */
+    async fn handle_simple_cmd(&mut self, cmd: Command, expected_states: Vec<SmtpState>, response: &str) -> Result<(), SmtpError> {
+        match expected_states.contains(&self.state) {
+            true => {}
+            false => {
+                return Err(SmtpError::bad_command(cmd))
+            }
+        }
+        
+        //self.send(response.to_string()).await.into()?;
+
+        Ok(())
+    }
+
     async fn expect_simple_command(&mut self, cmd: Command, paths: Box<[SimpleResponse]>,
-                                   fail_path: SimpleResponse) -> Result<StateTransition, SmtpError>    {
+                                   fail_path: SimpleResponse) -> Result<StateTransition, SmtpError> {
         for path in paths {
             match cmd.verb {
                 Some(verb) if verb == path.expect => {
@@ -351,7 +384,7 @@ impl Smtp {
         match split.next() {
             Some("TO:") => {},
             _ => {
-                return Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+                return Err(SmtpError::bad_command(cmd)
                     .push_state(self.state.clone())
                 );
             }
@@ -361,14 +394,14 @@ impl Smtp {
             Some(s) => {
                 // Empty recipient
                 if s.trim().len() == 0 {
-                    return Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+                    return Err(SmtpError::bad_command(cmd)
                         .push_state(self.state.clone())
                     );
                 };
                 self.mail.recipients.push(s.to_string());
                 Ok(())
             },
-            None => Err(SmtpError::bad_command(format!("RCPT {}", cmd.remainder))
+            None => Err(SmtpError::bad_command(cmd)
                 .push_state(self.state.clone())
             )
         }

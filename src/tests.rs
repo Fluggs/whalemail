@@ -62,7 +62,7 @@ async fn test_init() {
 }
 
 #[tokio::test]
-async fn test_unknown_cmd() {
+async fn test_n_unknown_cmd() {
     let mut s = setup();
     s.init_smtp().await.unwrap();
     s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
@@ -115,4 +115,21 @@ async fn test_helo_multiple_rcpt() {
 
     s.handle("RCPT TO:<rcv2@whalemail.net>\r\n".to_string()).await.unwrap();
     s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+}
+
+#[tokio::test]
+async fn test_n_omit_rcpt() {
+    let mut s = setup();
+    println!("setup!");
+    s.init_smtp().await.unwrap();
+    s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
+
+    s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+    s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+    s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+    s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+    s.handle("DATA\r\n".to_string()).await.unwrap();
+    s.conn_testbed.as_mut().unwrap().expect_msg("503 Bad sequence\r\n");
 }
