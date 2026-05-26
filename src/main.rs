@@ -29,8 +29,8 @@ async fn main() -> io::Result<()> {
 }
 
 async fn process_socket_silent(socket: TcpStream, addr: SocketAddr) {
-    println!("Socket from {}:{}", addr.ip(), addr.port());
     let handler = ConnectionHandler::new(socket, addr);
+    debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
     match handler.process_socket().await {
         Ok(()) => (),
         Err(err) => eprintln!("Socket came back with error: '{err}'")

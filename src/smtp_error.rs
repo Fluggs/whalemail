@@ -46,16 +46,16 @@ impl SmtpError {
         SmtpError {
             kind: ErrorKind::BADCOMMAND,
             state: None,
-            cmd: format!("{:?} {}",  cmd.verb.unwrap(), cmd.remainder),
+            cmd: format!("{}", cmd.message),
             io_error: None,
         }
     }
     
-    pub(crate) fn bad_sequence(cmd: String, state: SmtpState) -> SmtpError {
+    pub(crate) fn bad_sequence(cmd: &Command, state: SmtpState) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADSEQUENCE,
             state: Some(state),
-            cmd,
+            cmd: format!("{}", cmd.message),
             io_error: None,
         }
     }

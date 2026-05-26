@@ -8,7 +8,7 @@ use crate::smtp_error::SmtpError;
 
 pub struct ConnectionHandler {
     socket: TcpStream,
-    addr: SocketAddr,
+    pub(crate) addr: SocketAddr,
 }
 
 impl ConnectionHandler {
