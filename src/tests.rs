@@ -1,28 +1,46 @@
 use crate::smtp_error::SmtpError;
 
 pub struct SmtpTest {
-    pub last_msg: Option<String>,
-}
-
-#[cfg(test)]
-impl SmtpTest {
-    fn replace_newline(&self, s: &String) -> String {
-        s.replace("\n", "\\n").replace("\r", "\\r")
-    }
-    
-    fn expect_msg(&self, expected_msg: &str) {
-        println!("last msg: '{}'; expectation: '{}'",
-                 self.replace_newline(&self.last_msg.clone().unwrap()),
-                 self.replace_newline(&expected_msg.to_string())
-        );
-        assert_eq!(self.last_msg.clone(), Some(expected_msg.to_string()));
-    }
+    last_msg: Option<String>,
+    pub received: bool,
 }
 
 impl SmtpTest {
     pub fn send(&mut self, msg: String) -> Result<(), SmtpError> {
+        if !self.received && self.last_msg.is_some() {
+            panic!("Last message was never received: '{}'", self.last_msg.clone().unwrap())
+        }
         self.last_msg = Some(msg);
+        self.received = false;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+fn replace_newline(s: &String) -> String {
+    s.replace("\n", "\\n").replace("\r", "\\r")
+}
+
+#[cfg(test)]
+impl SmtpTest {
+    
+    fn expect_msg(&mut self, expected_msg: &str) {
+        let last_msg = self.receive().unwrap();
+        println!("last msg: '{}'; expectation: '{}'",
+                 replace_newline(&last_msg),
+                 replace_newline(&expected_msg.to_string())
+        );
+        assert_eq!(self.last_msg.clone(), Some(expected_msg.to_string()));
+    }
+
+    pub fn receive(&mut self) -> Option<String> {
+        let r = match self.received {
+            true => None,
+            false => self.last_msg.clone()
+        };
+
+        self.received = true;
+        r
     }
 }
 
@@ -43,6 +61,7 @@ mod tests {
             conn: None,
             conn_testbed: Some(SmtpTest {
                 last_msg: None,
+                received: false,
             }),
             closed: false,
             state: SmtpState::INIT,

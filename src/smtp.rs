@@ -86,7 +86,13 @@ impl Smtp {
             Some(c) => c.send(s).await
                 .or_else(|error| Err(SmtpError::from_io(error, self.state.clone()))),
             None => {
-                self.conn_testbed.as_mut().unwrap().send(s)
+                let mut r = Ok(());
+                if cfg!(test) {
+                    r = self.conn_testbed.as_mut().unwrap().send(s);
+                } else if cfg!(not(test)) {
+                    panic!("No connection handler present");
+                }
+                r
             },
         }
     }
