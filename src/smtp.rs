@@ -2,6 +2,7 @@ use std::{fmt, io};
 use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug};
+use regex::Regex;
 use crate::net::ConnectionHandler;
 use crate::tests::SmtpTest;
 use crate::smtp_error::{ErrorKind, SmtpError};
@@ -127,12 +128,12 @@ impl Smtp {
                     .and(Ok(SmtpState::HELO))
             },
             Some(SmtpState::MAIL) => {
-                self.handle_simple_cmd(&cmd, vec![SmtpState::HELO, SmtpState::EHLO], "250 OK\r\n")
-                    .await
+                self.receive_mail_cmd(cmd).await
                     .and(Ok(SmtpState::MAIL))
             },
             Some(SmtpState::RCPT) => {
-                self.receive_rcpt(cmd).await.and(Ok(SmtpState::RCPT))
+                self.receive_rcpt(cmd).await
+                    .and(Ok(SmtpState::RCPT))
             },
             Some(SmtpState::DATA) => {
                 self.handle_simple_cmd(&cmd, vec![SmtpState::RCPT], "354 start mail input\r\n")
@@ -222,6 +223,17 @@ impl Smtp {
     }
 
     /**
+    Handles an incoming MAIL command.
+    Stores the sender address that was sent and sends a 250 response.
+
+    Verifies protocol state machine.
+    Returns an SmtpError if protocol is violated or on IO error.
+    */
+    async fn receive_mail_cmd(&mut self, cmd: Command) -> Result<(), SmtpError> {
+        self.handle_simple_cmd(&cmd, vec![SmtpState::HELO, SmtpState::EHLO], "250 OK\r\n").await
+    }
+
+    /**
     Handles an incoming RCPT command.
     Pushes the receiving address that was sent and sends a 354 response.
     
@@ -232,9 +244,10 @@ impl Smtp {
         debug!("Handling RCPT: {cmd}");
         match self.state {
             SmtpState::RCPT | SmtpState::MAIL => {
-                let r = self.push_rcpt(cmd);
+                let recipient = self.parse_rcpt(cmd)?;
+                self.mail.recipients.push(recipient);
                 self.send("250 OK\r\n".to_string()).await?;
-                r
+                Ok(())
             },
             _ => {
                 Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
@@ -242,33 +255,23 @@ impl Smtp {
         }
     }
     
-    fn push_rcpt(&mut self, cmd: Command) -> Result<(), SmtpError> {
-        let mut split = cmd.message.trim().splitn(2, ":");
-        match split.next() {
-            Some("RCPT TO") => {},
-            y => {
-                debug!("Expected 'RCPT TO', got '{}'", y.unwrap_or("<None>"));
-                return Err(SmtpError::bad_command(cmd)
-                    .push_state(self.state.clone())
-                );
-            }
+    /**
+    Parses a recipient address from an RCPT command.
+    */
+    fn parse_rcpt(&mut self, cmd: Command) -> Result<String, SmtpError> {
+        let re = Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap();
+        
+        let parse = match re.captures(&cmd.message) {
+            Some(capture) => match capture.get(1) {
+                Some(rcpt) => Some(rcpt.as_str().to_string()),
+                None => None
+            },
+            None => None
         };
         
-        match split.next() {
-            Some(s) => {
-                // Empty recipient
-                if s.trim().len() == 0 {
-                    return Err(SmtpError::bad_command(cmd)
-                        .push_state(self.state.clone())
-                    );
-                };
-                debug!("Pushing recipient '{}' to mail", s);
-                self.mail.recipients.push(s.to_string());
-                Ok(())
-            },
-            None => Err(SmtpError::bad_command(cmd)
-                .push_state(self.state.clone())
-            )
+        match parse {
+            Some(rcpt) => Ok(rcpt),
+            None => Err(SmtpError::bad_command(cmd).push_state(self.state.clone()))
         }
     }
     

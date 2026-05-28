@@ -32,6 +32,10 @@ impl SmtpTest {
         );
         assert_eq!(self.last_msg.clone(), Some(expected_msg.to_string()));
     }
+    
+    fn expect_no_msg(&mut self) {
+        assert_eq!(self.receive(), None);
+    }
 
     pub fn receive(&mut self) -> Option<String> {
         let r = match self.received {
@@ -65,10 +69,7 @@ mod tests {
             }),
             closed: false,
             state: SmtpState::INIT,
-            mail: SmtpMessage {
-                recipients: Vec::new(),
-                body: None
-            },
+            mail: SmtpMessage::new(),
             last_cmd_complete: true,
             msg_buf: "".to_string(),
         }
@@ -95,6 +96,41 @@ mod tests {
 
     #[tokio::test]
     async fn test_helo_mail() {
+        let sender = "sender@test.org";
+        let rcpt = "rcv@whalemail.net";
+
+        let mut s = setup();
+        s.init_smtp().await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
+
+        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("RCPT TO:<".to_string() + rcpt + ">\r\n").await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("DATA\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("354 start mail input\r\n");
+
+        s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("221 closing channel\r\n");
+        assert_eq!(r, StateKind::QUIT);
+
+        // Verify mail
+        //assert_eq!(s.mail.sender, Some(sender.to_string()));
+        assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
+    }
+
+    //#[tokio::test]
+    async fn test_n_mail_parts() {
+        let mailct_1 = "<mailblob> blob blob\r\n".to_string();
+        let mailct_2 = "more blob\r\n.\r\n".to_string();
         let mut s = setup();
         s.init_smtp().await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
@@ -111,16 +147,24 @@ mod tests {
         s.handle("DATA\r\n".to_string()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("354 start mail input\r\n");
 
-        s.handle("<mailblob> blob blob\r\n".to_string()).await.unwrap();
+        s.handle(mailct_1.clone()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_no_msg();
+
+        s.handle(mailct_2.clone()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
 
         let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("221 closing channel\r\n");
         assert_eq!(r, StateKind::QUIT);
+
+        // verify msg
+        assert_eq!(s.mail.body, Some(mailct_1 + &mailct_2));
     }
 
     #[tokio::test]
     async fn test_helo_multiple_rcpt() {
+        let rcpt1 = "rcv1@whalemail.net";
+        let rcpt2 = "rcv2@whalemail.net";
         let mut s = setup();
         println!("setup!");
         s.init_smtp().await.unwrap();
@@ -132,11 +176,13 @@ mod tests {
         s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
 
-        s.handle("RCPT TO:<rcv1@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.handle("RCPT TO:<".to_string() + rcpt1 + ">\r\n").await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
 
-        s.handle("RCPT TO:<rcv2@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.handle("RCPT TO:<".to_string() + rcpt2 + ">\r\n").await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+        
+        assert_eq!(s.mail.recipients, Vec::from([rcpt1.to_string(), rcpt2.to_string()]));
     }
 
     #[tokio::test]
