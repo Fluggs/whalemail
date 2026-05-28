@@ -61,18 +61,11 @@ mod tests {
             Ok(()) => {},
             Err(_) => {}
         };
-        Smtp {
-            conn: None,
-            conn_testbed: Some(SmtpTest {
+        Smtp::new_testbed(
+            SmtpTest {
                 last_msg: None,
                 received: false,
-            }),
-            closed: false,
-            state: SmtpState::INIT,
-            mail: SmtpMessage::new(),
-            last_cmd_complete: true,
-            msg_buf: "".to_string(),
-        }
+        })
     }
 
     #[tokio::test]
@@ -123,7 +116,7 @@ mod tests {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        //assert_eq!(s.mail.sender, Some(sender.to_string()));
+        assert_eq!(s.mail.sender, Some(sender.to_string()));
         assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
     }
 

@@ -59,11 +59,12 @@ impl Command {
 }
 
 pub struct Smtp {
-    pub conn: Option<ConnectionHandler>,
-    pub conn_testbed: Option<SmtpTest>,
-    pub closed: bool,
+    pub(crate) conn: Option<ConnectionHandler>,
+    pub(crate) conn_testbed: Option<SmtpTest>,
+    pub(crate) closed: bool,
     
     pub(crate) state: SmtpState,
+    state_history: Vec<SmtpState>,
     pub(crate) mail: SmtpMessage,
     pub(crate) last_cmd_complete: bool,
     pub(crate) msg_buf: String,
@@ -76,6 +77,20 @@ impl Smtp {
             conn_testbed: None,
             closed: false,
             state: SmtpState::INIT,
+            state_history: Vec::new(),
+            mail: SmtpMessage::new(),
+            last_cmd_complete: true,
+            msg_buf: "".to_string(),
+        }
+    }
+    #[cfg(test)]
+    pub fn new_testbed (testbed: SmtpTest) -> Smtp {
+        Smtp {
+            conn: None,
+            conn_testbed: Some(testbed),
+            closed: false,
+            state: SmtpState::INIT,
+            state_history: Vec::new(),
             mail: SmtpMessage::new(),
             last_cmd_complete: true,
             msg_buf: "".to_string(),
@@ -162,6 +177,8 @@ impl Smtp {
             y => panic!("Unexpected {:?}", y)
         };
         
+        self.state_history.push(self.state.clone());
+        
         match r {
             Ok(state) => {
                 debug!("Transitioning: {} -> {}", self.state, state);
@@ -194,6 +211,7 @@ impl Smtp {
                     .or_else(|err| Err(err.io_error.unwrap()))
             },
             ErrorKind::BADSEQUENCE => {
+                debug!("Bad sequence: {:?}", self.state_history);
                 self.send("503 Bad sequence\r\n".to_string()).await
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
@@ -230,7 +248,21 @@ impl Smtp {
     Returns an SmtpError if protocol is violated or on IO error.
     */
     async fn receive_mail_cmd(&mut self, cmd: Command) -> Result<(), SmtpError> {
-        self.handle_simple_cmd(&cmd, vec![SmtpState::HELO, SmtpState::EHLO], "250 OK\r\n").await
+        debug!("Handling MAIL: {}", cmd);
+        match self.state {
+            SmtpState::HELO | SmtpState::EHLO => {
+                let sender = self.parse_address_message_by_re(
+                    Regex::new(r"^MAIL FROM:<([^>]+)>\r\n$").unwrap(), cmd
+                )?;
+                self.mail.sender = Some(sender);
+                self.send("250 OK\r\n".to_string()).await?;
+                Ok(())
+            },
+            _ => {
+                debug!("Bad sequence: Expected to be in state HELO|EHLO, got '{}'", self.state);
+                Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
+            }
+        }
     }
 
     /**
@@ -244,7 +276,9 @@ impl Smtp {
         debug!("Handling RCPT: {cmd}");
         match self.state {
             SmtpState::RCPT | SmtpState::MAIL => {
-                let recipient = self.parse_rcpt(cmd)?;
+                let recipient = self.parse_address_message_by_re(
+                    Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap(), cmd
+                )?;
                 self.mail.recipients.push(recipient);
                 self.send("250 OK\r\n".to_string()).await?;
                 Ok(())
@@ -256,11 +290,10 @@ impl Smtp {
     }
     
     /**
-    Parses a recipient address from an RCPT command.
+    Parses an address from an RCPT or MAIL command.
+    Returns the contained address or `SmtpError::BADCOMMAND` on error.
     */
-    fn parse_rcpt(&mut self, cmd: Command) -> Result<String, SmtpError> {
-        let re = Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap();
-        
+    fn parse_address_message_by_re(&mut self, re: Regex, cmd: Command) -> Result<String, SmtpError> {
         let parse = match re.captures(&cmd.message) {
             Some(capture) => match capture.get(1) {
                 Some(rcpt) => Some(rcpt.as_str().to_string()),
