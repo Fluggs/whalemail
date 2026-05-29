@@ -3,6 +3,7 @@ use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::str;
 use tokio::net::TcpStream;
+use log::{debug, info};
 use crate::smtp::{Smtp, StateKind};
 use crate::smtp_error::SmtpError;
 
@@ -34,11 +35,11 @@ impl ConnectionHandler {
             let mut buf = [0; 4096];
             match smtp.conn.as_ref().unwrap().socket.try_read(&mut buf) {
                 Ok(0) => {
-                    println!("Connection closed by client.");
+                    info!("Connection closed by client.");
                     break
                 },
                 Ok(n) => {
-                    println!("---- Reading {n} bytes");
+                    debug!("---- Reading {n} bytes");
                     let v = match str::from_utf8(&buf[..n]) { // todo consider from_utf8_lossy
                         Ok(v) => v.to_string(),
                         Err(_) => {
@@ -80,7 +81,7 @@ impl ConnectionHandler {
                 Ok(n) => {
                     if n < msg.len() {
                         let err = format!("Tried to write {} bytes but only {} were written.", msg.len(), n);
-                        println!("{err}");
+                        debug!("{err}");
                         Error::new(ErrorKind::Other, err);
                     }
                     break;
@@ -93,7 +94,7 @@ impl ConnectionHandler {
                 }
             }
         }
-        println!("---- {msg}");
+        debug!("---- {msg}");
         
         Ok(())
     }

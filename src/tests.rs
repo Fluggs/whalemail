@@ -52,7 +52,7 @@ impl SmtpTest {
 mod tests {
     use env_logger::Env;
     use crate::smtp::{Smtp, SmtpState, StateKind};
-    use crate::smtp_message::SmtpMessage;
+    use crate::smtp_mail::SmtpMail;
     use crate::tests::SmtpTest;
 
     fn setup<'a>() -> Smtp {
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(r, StateKind::QUIT);
 
         // verify msg
-        assert_eq!(s.mail.body, Some(mailct_1 + &mailct_2));
+        assert_eq!(s.mail.body, mailct_1 + &mailct_2);
     }
 
     #[tokio::test]
@@ -193,5 +193,67 @@ mod tests {
 
         s.handle("DATA\r\n".to_string()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("503 Bad sequence\r\n");
+    }
+
+    /*
+    Tests for decode_transparency
+     */
+    #[test]
+    fn test_dtp_empty_s() {
+        let mut smtp = setup();
+        let expected = "".to_string();
+        assert_eq!(smtp.decode_transparency(expected.clone()), false);
+        assert_eq!(smtp.mail.body, expected);
+    }
+    #[test]
+    fn test_dtp_empty_mail() {
+        let mut smtp = setup();
+        let expected = ".\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(expected.clone()), false);
+        assert_eq!(smtp.mail.body, expected);
+    }
+
+    #[test]
+    fn test_dtp_simple_mail() {
+        let mut smtp = setup();
+        let expected = "blub\r\n.\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(expected.clone()), true);
+        assert_eq!(smtp.mail.body, expected);
+    }
+
+    #[test]
+    fn test_dtp_first_line_transparency() {
+        let mut smtp = setup();
+        let input = ".\r\n.\r\n".to_string();
+        let expected = "\r\n.\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(input), true);
+        assert_eq!(smtp.mail.body, expected);
+    }
+
+    #[test]
+    fn test_dtp_multi_line_transparency() {
+        let mut smtp = setup();
+        let input = ".abc\r\n.bcdef\r\n.\r\n".to_string();
+        let expected = "abc\r\nbcdef\r\n.\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(input), true);
+        assert_eq!(smtp.mail.body, expected);
+    }
+
+    #[test]
+    fn test_dtp_double_period_transparency() {
+        let mut smtp = setup();
+        let input = "..a\r\n..bc\r\n.\r\n".to_string();
+        let expected = ".a\r\n.bc\r\n.\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(input), true);
+        assert_eq!(smtp.mail.body, expected);
+    }
+
+    #[test]
+    fn test_dtp_multi_line_transparency_no_end() {
+        let mut smtp = setup();
+        let input = ".abc\r\n.bcdef\r\n".to_string();
+        let expected = "abc\r\nbcdef\r\n".to_string();
+        assert_eq!(smtp.decode_transparency(input), false);
+        assert_eq!(smtp.mail.body, expected);
     }
 }

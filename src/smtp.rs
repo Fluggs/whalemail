@@ -1,4 +1,4 @@
-use std::{fmt, io};
+use std::{fmt, io, sync};
 use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug};
@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::net::ConnectionHandler;
 use crate::tests::SmtpTest;
 use crate::smtp_error::{ErrorKind, SmtpError};
-use crate::smtp_message::SmtpMessage;
+use crate::smtp_mail::SmtpMail;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum SmtpState {
@@ -58,6 +58,17 @@ impl Command {
     }
 }
 
+// Regex Patterns
+struct Patterns {
+    mail_end: Regex,
+    period_linestart: Regex,
+}
+
+static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
+    mail_end: Regex::new(r"\r\n.\r\n").unwrap(),
+    period_linestart: Regex::new(r"\r\n.").unwrap(),
+});
+
 pub struct Smtp {
     pub(crate) conn: Option<ConnectionHandler>,
     pub(crate) conn_testbed: Option<SmtpTest>,
@@ -65,9 +76,7 @@ pub struct Smtp {
     
     pub(crate) state: SmtpState,
     state_history: Vec<SmtpState>,
-    pub(crate) mail: SmtpMessage,
-    pub(crate) last_cmd_complete: bool,
-    pub(crate) msg_buf: String,
+    pub(crate) mail: SmtpMail,
 }
 
 impl Smtp {
@@ -78,9 +87,7 @@ impl Smtp {
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
-            mail: SmtpMessage::new(),
-            last_cmd_complete: true,
-            msg_buf: "".to_string(),
+            mail: SmtpMail::new(),
         }
     }
     #[cfg(test)]
@@ -91,9 +98,7 @@ impl Smtp {
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
-            mail: SmtpMessage::new(),
-            last_cmd_complete: true,
-            msg_buf: "".to_string(),
+            mail: SmtpMail::new(),
         }
     }
     
@@ -156,7 +161,7 @@ impl Smtp {
                     .and(Ok(SmtpState::DATA))
             },
             Some(SmtpState::DATAINPUT) => {
-                self.receive_data(cmd).await.and(Ok(SmtpState::DATAINPUT))
+                self.receive_data(cmd).await
             },
             Some(SmtpState::QUIT) => {
                 self.handle_simple_cmd(&cmd, vec![SmtpState::DATAINPUT], "221 closing channel\r\n")
@@ -259,7 +264,8 @@ impl Smtp {
                 Ok(())
             },
             _ => {
-                debug!("Bad sequence: Expected to be in state HELO|EHLO, got '{}'", self.state);
+                debug!("Bad sequence: Unexpected '{}' after '{}', expected to be in state HELO|EHLO instead",
+                    SmtpState::MAIL, self.state);
                 Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
             }
         }
@@ -315,19 +321,81 @@ impl Smtp {
     Verifies protocol state machine.
     Returns an SmtpError if protocol is violated or on IO error.
      */
-    async fn receive_data(&mut self, cmd: Command) -> Result<(), SmtpError> {
+    async fn receive_data(&mut self, cmd: Command) -> Result<SmtpState, SmtpError> {
         debug!("Handling data input: {cmd}");
         match self.state {
             SmtpState::DATA => {
                 debug!("Mail!: {}", cmd.message);
-                // todo store msg
+                let mail_end = self.decode_transparency(cmd.message);
                 self.send("250 OK\r\n".to_string()).await?;
-                Ok(())
+                match mail_end {
+                    true => Ok(SmtpState::DATAINPUT),
+                    false => Ok(SmtpState::DATA)
+                }
             }
             _ => {
                 println!("Unexpected '{}' after '{}', expected mail input instead", SmtpState::DATAINPUT, self.state);
                 Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
             }
         }
+    }
+
+    /**
+    Decodes mails as per transparency procedure in RFC5321#4.5.2 and pushes the result to Smtp.mail.
+    */
+    pub(crate) fn decode_transparency(&mut self, s: String) -> bool {
+        let mut buf: Vec<&str> = Vec::new();
+        let mut capacity = 0;
+        let mut has_changed = false;
+
+        // Find and handle \r\n.\r\n
+        let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {
+            Some(m) => (m.start(), m.end(), true),
+            None => (s.len(), s.len(), false)
+        };
+
+
+        // Handle transparency on first line
+        let mut chunk_start = match s.starts_with(".") {
+            true => {
+                has_changed = true;
+                1
+            },
+            false => 0
+        };
+        
+        let mut end_loop = false;
+        while !end_loop {
+            
+            let chunk_end = match RE.period_linestart.find(&s[chunk_start..mail_end_start]) {
+                Some(m) => {
+                    has_changed = true;
+                    m.start() + "\r\n".len() + 1
+                },
+                None => {
+                    end_loop = true;
+                    mail_end_end
+                }
+            };
+            
+            buf.push(&s[chunk_start..chunk_end]);
+            capacity += chunk_end - chunk_start;
+            debug!("Recognized mail part with len {}:\n{:?}", chunk_end - chunk_start, &s[chunk_start..chunk_end]);
+            
+            chunk_start = chunk_end + ".".len();
+        }
+        
+        match has_changed {
+            true => {
+                self.mail.body.reserve(capacity);
+                for el in buf {
+                    self.mail.body += el;
+                }
+            },
+            false => self.mail.body.push_str(s.as_str())
+        };
+
+        mail_is_complete
+
     }
 }
