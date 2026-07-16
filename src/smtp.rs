@@ -154,6 +154,12 @@ impl Smtp {
                     .await
                     .and(Ok(SmtpState::HELO))
             },
+            // INIT -> EHLO
+            Some(SmtpState::EHLO) => {
+                self.handle_static_cmd(&cmd, vec![SmtpState::INIT], "502 sorry\r\n")
+                    .await
+                    .and(Ok(SmtpState::INIT))
+            },
             // HELO|EHLO -> MAIL
             Some(SmtpState::MAIL) => {
                 self.receive_mail_cmd(cmd).await

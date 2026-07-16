@@ -123,6 +123,43 @@ mod tests {
         assert!(s.mail.is_finished());
     }
 
+    #[tokio::test]
+    async fn test_ehlo_mail() {
+        let sender = "sender@test.org";
+        let rcpt = "rcv@whalemail.net";
+
+        let mut s = setup();
+        s.init_smtp().await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
+
+        s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("502 sorry\r\n");
+
+        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("RCPT TO:<".to_string() + rcpt + ">\r\n").await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        s.handle("DATA\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("354 start mail input\r\n");
+
+        s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
+        let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("221 closing channel\r\n");
+        assert_eq!(r, StateKind::QUIT);
+
+        // Verify mail
+        assert_eq!(s.mail.sender, Some(sender.to_string()));
+        assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
+        assert!(s.mail.is_finished());
+    }
+
     //#[tokio::test]
     async fn test_n_mail_parts() {
         let mailct_1 = "<mailblob> blob blob\r\n".to_string();
