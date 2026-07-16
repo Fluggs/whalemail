@@ -6,6 +6,7 @@ use tokio::net::TcpStream;
 use log::{debug, info};
 use crate::smtp::{Smtp, StateKind};
 use crate::smtp_error::SmtpError;
+use crate::storage::Storage;
 
 pub struct ConnectionHandler {
     socket: TcpStream,
@@ -21,7 +22,7 @@ impl ConnectionHandler {
     }
     
     pub async fn process_socket(self) -> io::Result<()> {
-        let mut smtp = Smtp::new(self);
+        let mut smtp = Smtp::new(self, Storage { directory: "todo_dir".to_string() });
         smtp.init_smtp().await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         

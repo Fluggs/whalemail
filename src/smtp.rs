@@ -7,6 +7,7 @@ use crate::net::ConnectionHandler;
 use crate::tests::SmtpTest;
 use crate::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp_mail::SmtpMail;
+use crate::storage::Storage;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum SmtpState {
@@ -77,10 +78,12 @@ pub struct Smtp {
     pub(crate) state: SmtpState,
     state_history: Vec<SmtpState>,
     pub(crate) mail: SmtpMail,
+    
+    storage: Storage,
 }
 
 impl Smtp {
-    pub fn new (connhandler: ConnectionHandler) -> Smtp {
+    pub fn new (connhandler: ConnectionHandler, storage: Storage) -> Smtp {
         Smtp {
             conn: Some(connhandler),
             conn_testbed: None,
@@ -88,10 +91,11 @@ impl Smtp {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            storage,
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest) -> Smtp {
+    pub fn new_testbed (testbed: SmtpTest, storage: Storage) -> Smtp {
         Smtp {
             conn: None,
             conn_testbed: Some(testbed),
@@ -99,6 +103,7 @@ impl Smtp {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            storage,
         }
     }
     
@@ -141,30 +146,37 @@ impl Smtp {
             None => "<data input>".to_string()
         });
 
+        // state machine edge self.state -> cmd.verb
         let r = match &cmd.verb {
+            // INIT -> HELO
             Some(SmtpState::HELO) => {
-                self.handle_simple_cmd(&cmd, vec![SmtpState::INIT], "250 OK\r\n")
+                self.handle_static_cmd(&cmd, vec![SmtpState::INIT], "250 OK\r\n")
                     .await
                     .and(Ok(SmtpState::HELO))
             },
+            // HELO|EHLO -> MAIL
             Some(SmtpState::MAIL) => {
                 self.receive_mail_cmd(cmd).await
                     .and(Ok(SmtpState::MAIL))
             },
+            // MAIL|RCPT -> RCPT
             Some(SmtpState::RCPT) => {
                 self.receive_rcpt(cmd).await
                     .and(Ok(SmtpState::RCPT))
             },
+            // RCPT -> DATA
             Some(SmtpState::DATA) => {
-                self.handle_simple_cmd(&cmd, vec![SmtpState::RCPT], "354 start mail input\r\n")
+                self.handle_static_cmd(&cmd, vec![SmtpState::RCPT], "354 start mail input\r\n")
                     .await
                     .and(Ok(SmtpState::DATA))
             },
+            // DATA -> DATAINPUT
             Some(SmtpState::DATAINPUT) => {
                 self.receive_data(cmd).await
             },
+            // DATAINPUT -> QUIT
             Some(SmtpState::QUIT) => {
-                self.handle_simple_cmd(&cmd, vec![SmtpState::DATAINPUT], "221 closing channel\r\n")
+                self.handle_static_cmd(&cmd, vec![SmtpState::DATAINPUT], "221 closing channel\r\n")
                     .await
                     .and(Ok(SmtpState::QUIT))
             },
@@ -172,9 +184,7 @@ impl Smtp {
                 debug!("Handling None");
                 match &self.state {
                     SmtpState::DATA => {
-                        self.handle_simple_cmd(&cmd, vec![SmtpState::DATA], "250 OK\r\n")
-                            .await
-                            .and(Ok(SmtpState::DATAINPUT))
+                        self.receive_data(cmd).await
                     },
                     _ => Err(SmtpError::bad_command(cmd))
                 }
@@ -204,8 +214,8 @@ impl Smtp {
     /**
     Sends an appropriate error response for an SMTP error and returns the error again.
     
-    If the SMTP error originates from an IO error or an IO error occurs during this response,
-    returns the io::Error instead. 
+    If the SMTP error originates from an io:Error or an IO error occurs during this response,
+    returns the causing io::Error instead. 
     */
     async fn handle_smtp_error(&mut self, error: SmtpError) -> Result<SmtpError, io::Error> {
         debug!("Sending error response for '{:?}'", error.kind);
@@ -233,7 +243,7 @@ impl Smtp {
     `expected_state` list of origin states that allow this command
     `response` response msg
     */
-    async fn handle_simple_cmd(&mut self, cmd: &Command, expected_states: Vec<SmtpState>, response: &str) -> Result<(), SmtpError> {
+    async fn handle_static_cmd(&mut self, cmd: &Command, expected_states: Vec<SmtpState>, response: &str) -> Result<(), SmtpError> {
         match expected_states.contains(&self.state) {
             true => {
                 self.send(response.to_string()).await
@@ -329,7 +339,11 @@ impl Smtp {
                 let mail_end = self.decode_transparency(cmd.message);
                 self.send("250 OK\r\n".to_string()).await?;
                 match mail_end {
-                    true => Ok(SmtpState::DATAINPUT),
+                    true => {
+                        self.mail.finish();
+                        self.storage.store(&self.mail).await.unwrap(); //todo error handling
+                        Ok(SmtpState::DATAINPUT)
+                    },
                     false => Ok(SmtpState::DATA)
                 }
             }
@@ -344,11 +358,12 @@ impl Smtp {
     Decodes mails as per transparency procedure in RFC5321#4.5.2 and pushes the result to Smtp.mail.
     */
     pub(crate) fn decode_transparency(&mut self, s: String) -> bool {
+        debug!("Decoding transparency for \"{s}\"");
         let mut buf: Vec<&str> = Vec::new();
         let mut capacity = 0;
         let mut has_changed = false;
 
-        // Find and handle \r\n.\r\n
+        // Find and store \r\n.\r\n positions
         let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {
             Some(m) => (m.start(), m.end(), true),
             None => (s.len(), s.len(), false)
@@ -364,6 +379,7 @@ impl Smtp {
             false => 0
         };
         
+        // Write every chunk between two \r\n. into buf to assemble the new body later
         let mut end_loop = false;
         while !end_loop {
             
@@ -396,6 +412,5 @@ impl Smtp {
         };
 
         mail_is_complete
-
     }
 }

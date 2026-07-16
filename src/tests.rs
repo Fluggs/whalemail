@@ -1,4 +1,5 @@
 use crate::smtp_error::SmtpError;
+use log::{info};
 
 pub struct SmtpTest {
     last_msg: Option<String>,
@@ -26,7 +27,7 @@ impl SmtpTest {
     
     fn expect_msg(&mut self, expected_msg: &str) {
         let last_msg = self.receive().unwrap();
-        println!("last msg: '{}'; expectation: '{}'",
+        info!("last msg: '{}'; expectation: '{}'",
                  replace_newline(&last_msg),
                  replace_newline(&expected_msg.to_string())
         );
@@ -53,6 +54,7 @@ mod tests {
     use env_logger::Env;
     use crate::smtp::{Smtp, SmtpState, StateKind};
     use crate::smtp_mail::SmtpMail;
+    use crate::storage::Storage;
     use crate::tests::SmtpTest;
 
     fn setup<'a>() -> Smtp {
@@ -65,7 +67,7 @@ mod tests {
             SmtpTest {
                 last_msg: None,
                 received: false,
-        })
+        }, Storage { directory: "testdir".to_string() } )
     }
 
     #[tokio::test]
@@ -118,6 +120,7 @@ mod tests {
         // Verify mail
         assert_eq!(s.mail.sender, Some(sender.to_string()));
         assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
+        assert!(s.mail.is_finished());
     }
 
     //#[tokio::test]
@@ -256,4 +259,8 @@ mod tests {
         assert_eq!(smtp.decode_transparency(input), false);
         assert_eq!(smtp.mail.body, expected);
     }
+    
+    /*
+    Tests for mail storage
+     */
 }
