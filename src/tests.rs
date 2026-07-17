@@ -1,4 +1,6 @@
 use crate::smtp_error::SmtpError;
+
+#[cfg(test)]
 use log::{info};
 
 pub struct SmtpTest {
@@ -52,8 +54,7 @@ impl SmtpTest {
 #[cfg(test)]
 mod tests {
     use env_logger::Env;
-    use crate::smtp::{Smtp, SmtpState, StateKind};
-    use crate::smtp_mail::SmtpMail;
+    use crate::smtp::{Smtp, StateKind};
     use crate::storage::Storage;
     use crate::tests::SmtpTest;
 
@@ -163,7 +164,7 @@ mod tests {
         assert!(s.mail.is_finished());
     }
 
-    //#[tokio::test]
+    #[tokio::test]
     async fn test_n_mail_parts() {
         let mailct_1 = "<mailblob> blob blob\r\n".to_string();
         let mailct_2 = "more blob\r\n.\r\n".to_string();

@@ -32,5 +32,6 @@ impl SmtpMail {
         self.finished = true;
     }
     
+    #[cfg(test)]
     pub(crate) fn is_finished(&self) -> bool { self.finished }
 }

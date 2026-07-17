@@ -1,9 +1,9 @@
 mod smtp;
 mod net;
-mod tests;
 mod smtp_mail;
 mod smtp_error;
 mod storage;
+mod tests;
 
 use tokio::net::{TcpListener, TcpStream};
 use std::io;
