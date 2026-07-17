@@ -6,7 +6,6 @@ pub(crate) struct SmtpMail {
     pub(crate) recipients: Vec<String>,
     pub(crate) body: String,
     pub(crate) uuid: Uuid,
-    #[allow(dead_code)]
     finished: bool,
 }
 

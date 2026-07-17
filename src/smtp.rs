@@ -19,6 +19,7 @@ pub(crate) enum SmtpState {
     DATA,
     DATAINPUT,
     QUIT,
+    AUTH,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +187,10 @@ impl Smtp {
                     .await
                     .and(Ok(SmtpState::QUIT))
             },
+            // anything -> AUTH stub
+            Some(SmtpState::AUTH) => {
+                Err(SmtpError::bad_command(cmd))
+            },
             None => {
                 debug!("Handling None");
                 match &self.state {
@@ -346,11 +351,11 @@ impl Smtp {
             SmtpState::DATA => {
                 debug!("Mail!: {}", cmd.message);
                 let mail_end = self.decode_transparency(cmd.message);
-                self.send("250 OK\r\n".to_string()).await?;
                 match mail_end {
                     true => {
                         self.mail.finish();
                         self.storage.store(&self.mail).await.unwrap(); //todo error handling
+                        self.send("250 OK\r\n".to_string()).await?;
                         Ok(SmtpState::DATAINPUT)
                     },
                     false => Ok(SmtpState::DATA)
@@ -371,6 +376,15 @@ impl Smtp {
         let mut buf: Vec<&str> = Vec::new();
         let mut capacity = 0;
         let mut has_changed = false;
+        
+        // Catch empty mail; treat period on first line as end of mail
+        match s.starts_with(".\r\n") {
+            true => {
+                self.mail.body = ".\r\n".to_string();
+                return true;
+            }
+            false => {}
+        }
 
         // Find and store \r\n.\r\n positions
         let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {

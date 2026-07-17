@@ -185,6 +185,7 @@ mod tests {
         s.conn_testbed.as_mut().unwrap().expect_msg("354 start mail input\r\n");
 
         s.handle(mailct_1.clone()).await.unwrap();
+        assert!(!s.mail.is_finished());
         s.conn_testbed.as_mut().unwrap().expect_no_msg();
 
         s.handle(mailct_2.clone()).await.unwrap();
@@ -249,13 +250,6 @@ mod tests {
         assert_eq!(smtp.decode_transparency(expected.clone()), false);
         assert_eq!(smtp.mail.body, expected);
     }
-    #[test]
-    fn test_dtp_empty_mail() {
-        let mut smtp = setup();
-        let expected = ".\r\n".to_string();
-        assert_eq!(smtp.decode_transparency(expected.clone()), false);
-        assert_eq!(smtp.mail.body, expected);
-    }
 
     #[test]
     fn test_dtp_simple_mail() {
@@ -266,10 +260,15 @@ mod tests {
     }
 
     #[test]
+    /*
+        Interpretation of dot-stuffing. RFC says "\r\n.\r\n ends a mail", which
+        does not specify whether ^.\r\n (with ^ beginning of the message) ends a mail as well.
+        We interpret this as the end of mail, so functionally an empty mail.
+     */
     fn test_dtp_first_line_transparency() {
         let mut smtp = setup();
         let input = ".\r\n.\r\n".to_string();
-        let expected = "\r\n.\r\n".to_string();
+        let expected = ".\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), true);
         assert_eq!(smtp.mail.body, expected);
     }
