@@ -66,8 +66,8 @@ struct Patterns {
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
-    mail_end: Regex::new(r"\r\n.\r\n").unwrap(),
-    period_linestart: Regex::new(r"\r\n.").unwrap(),
+    mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
+    period_linestart: Regex::new(r"\r\n\.").unwrap(),
 });
 
 pub struct Smtp {

@@ -273,8 +273,8 @@ mod tests {
     #[test]
     fn test_dtp_multi_line_transparency() {
         let mut smtp = setup();
-        let input = ".abc\r\n.bcdef\r\n.\r\n".to_string();
-        let expected = "abc\r\nbcdef\r\n.\r\n".to_string();
+        let input = ".abc\r\n.bcdef\r\ng\r\n.\r\n".to_string();
+        let expected = "abc\r\nbcdef\r\ng\r\n.\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), true);
         assert_eq!(smtp.mail.body, expected);
     }
