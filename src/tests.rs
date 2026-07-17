@@ -85,6 +85,9 @@ mod tests {
         s.init_smtp().await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("220 hi\r\n");
 
+        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        s.conn_testbed.as_mut().unwrap().expect_msg("250 OK\r\n");
+
         s.handle("blub\r\n".to_string()).await.unwrap();
         s.conn_testbed.as_mut().unwrap().expect_msg("500 Unrecognized command\r\n");
     }

@@ -1,7 +1,7 @@
 use std::{fmt, io, sync};
 use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
-use log::{debug};
+use log::{debug, info};
 use regex::Regex;
 use crate::net::ConnectionHandler;
 use crate::tests::SmtpTest;
@@ -192,7 +192,10 @@ impl Smtp {
                     SmtpState::DATA => {
                         self.receive_data(cmd).await
                     },
-                    _ => Err(SmtpError::bad_command(cmd))
+                    _ => {
+                        info!("Unrecognized SMTP message: \"{}\"", cmd.message);
+                        Err(SmtpError::bad_command(cmd))
+                    }
                 }
             },
             y => panic!("Unexpected {:?}", y)
