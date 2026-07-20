@@ -1,7 +1,10 @@
-mod smtp;
+mod smtp {
+    pub(crate) mod smtp;
+    pub(crate) mod smtp_error;
+    pub(crate) mod smtp_mail;
+}
+
 mod net;
-mod smtp_mail;
-mod smtp_error;
 mod storage;
 mod tests;
 

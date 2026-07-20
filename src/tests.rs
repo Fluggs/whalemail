@@ -1,4 +1,4 @@
-use crate::smtp_error::SmtpError;
+use crate::smtp::smtp_error::SmtpError;
 
 #[cfg(test)]
 use log::{info};
@@ -54,7 +54,7 @@ impl SmtpTest {
 #[cfg(test)]
 mod tests {
     use env_logger::Env;
-    use crate::smtp::{Smtp, StateKind};
+    use crate::smtp::smtp::{Smtp, StateKind};
     use crate::storage::Storage;
     use crate::tests::SmtpTest;
 

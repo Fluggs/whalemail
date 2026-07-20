@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io::Error;
-use crate::smtp::{SmtpState, Command};
+use crate::smtp::smtp::{SmtpState, Command};
 
 #[derive(Debug, Clone)]
 #[derive(PartialEq)]

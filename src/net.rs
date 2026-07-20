@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use std::str;
 use tokio::net::TcpStream;
 use log::{debug, info};
-use crate::smtp::{Smtp, StateKind};
-use crate::smtp_error::SmtpError;
+use crate::smtp::smtp::{Smtp, StateKind};
+use crate::smtp::smtp_error::SmtpError;
 use crate::storage::Storage;
 
 pub struct ConnectionHandler {

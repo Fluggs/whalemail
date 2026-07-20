@@ -1,7 +1,7 @@
 use tokio::fs;
 use std::io;
 use std::path::PathBuf;
-use crate::smtp_mail::SmtpMail;
+use crate::smtp::smtp_mail::SmtpMail;
 use log::{debug};
 
 pub(crate) struct Storage {

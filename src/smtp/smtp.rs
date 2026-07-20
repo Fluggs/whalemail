@@ -5,8 +5,8 @@ use log::{debug, info};
 use regex::Regex;
 use crate::net::ConnectionHandler;
 use crate::tests::SmtpTest;
-use crate::smtp_error::{ErrorKind, SmtpError};
-use crate::smtp_mail::SmtpMail;
+use crate::smtp::smtp_error::{ErrorKind, SmtpError};
+use crate::smtp::smtp_mail::SmtpMail;
 use crate::storage::Storage;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
