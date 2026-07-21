@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::str;
 use tokio::net::TcpStream;
 use log::{debug, info};
+use crate::auth::userdb::{UserDBMtx};
 use crate::smtp::smtp::{Smtp, StateKind};
 use crate::smtp::smtp_error::SmtpError;
 use crate::storage::Storage;
@@ -21,8 +22,8 @@ impl ConnectionHandler {
         }
     }
     
-    pub async fn process_socket(self) -> io::Result<()> {
-        let mut smtp = Smtp::new(self, Storage { directory: "todo_dir".to_string() });
+    pub async fn process_socket(self, user_db: UserDBMtx) -> io::Result<()> {
+        let mut smtp = Smtp::new(self, user_db, Storage { directory: "todo_dir".to_string() });
         smtp.init_smtp().await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         

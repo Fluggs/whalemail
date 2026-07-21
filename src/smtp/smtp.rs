@@ -3,8 +3,11 @@ use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug, info};
 use regex::Regex;
+use crate::auth::auth;
+use crate::auth::auth::Authorized;
+use crate::auth::userdb::{UserDBMtx};
 use crate::net::ConnectionHandler;
-use crate::tests::SmtpTest;
+use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp::smtp_mail::SmtpMail;
 use crate::storage::Storage;
@@ -64,11 +67,13 @@ impl Command {
 struct Patterns {
     mail_end: Regex,
     period_linestart: Regex,
+    auth_cmd: Regex,
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
+    auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
 });
 
 pub struct Smtp {
@@ -77,14 +82,18 @@ pub struct Smtp {
     pub(crate) closed: bool,
     
     pub(crate) state: SmtpState,
+    pub(crate) authorized: Option<Authorized>,
     state_history: Vec<SmtpState>,
     pub(crate) mail: SmtpMail,
     
+    pub(crate) user_db: UserDBMtx,
     storage: Storage,
+    
+    auth: Option<auth::Auth>,
 }
 
 impl Smtp {
-    pub fn new (connhandler: ConnectionHandler, storage: Storage) -> Smtp {
+    pub fn new (connhandler: ConnectionHandler, user_db: UserDBMtx, storage: Storage) -> Smtp {
         Smtp {
             conn: Some(connhandler),
             conn_testbed: None,
@@ -92,11 +101,14 @@ impl Smtp {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            user_db,
             storage,
+            auth: None,
+            authorized: None,
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest, storage: Storage) -> Smtp {
+    pub fn new_testbed (testbed: SmtpTest, user_db: UserDBMtx, storage: Storage) -> Smtp {
         Smtp {
             conn: None,
             conn_testbed: Some(testbed),
@@ -104,7 +116,10 @@ impl Smtp {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            user_db,
             storage,
+            auth: None,
+            authorized: None,
         }
     }
     
@@ -157,10 +172,16 @@ impl Smtp {
             },
             // INIT -> EHLO
             Some(SmtpState::EHLO) => {
-                self.handle_static_cmd(&cmd, vec![SmtpState::INIT], "502 sorry\r\n")
+                self.handle_ehlo(&cmd)
                     .await
-                    .and(Ok(SmtpState::INIT))
+                    .and(Ok(SmtpState::EHLO))
             },
+            // EHLO -> AUTH
+            Some(SmtpState::AUTH) => {
+                self.handle_auth(&cmd)
+                    .await
+                    .and(Ok(SmtpState::AUTH))
+            }
             // HELO|EHLO -> MAIL
             Some(SmtpState::MAIL) => {
                 self.receive_mail_cmd(cmd).await
@@ -187,15 +208,28 @@ impl Smtp {
                     .await
                     .and(Ok(SmtpState::QUIT))
             },
-            // anything -> AUTH stub
-            Some(SmtpState::AUTH) => {
-                Err(SmtpError::bad_command(cmd))
-            },
             None => {
                 debug!("Handling None");
                 match &self.state {
                     SmtpState::DATA => {
                         self.receive_data(cmd).await
+                    },
+                    SmtpState::AUTH => {
+                        debug!("Auth step");
+                        match self.auth.as_mut().unwrap().step(Some(cmd.message.as_ref())) {
+                            Ok(None) => Ok(SmtpState::AUTH),
+                            Ok(Some(authorized)) => {
+                                self.authorized = Some(authorized);
+                                self.send("235 2.7.0 Authentication successful\r\n".to_string())
+                                    .await
+                                    .and(Ok(SmtpState::EHLO))
+                            },
+                            Err(_) => {
+                                self.send("535 Unauthorized\r\n".to_string())
+                                    .await
+                                    .and(Ok(SmtpState::EHLO))
+                            }
+                        }
                     },
                     _ => {
                         info!("Unrecognized SMTP message: \"{}\"", cmd.message);
@@ -265,6 +299,56 @@ impl Smtp {
             false => {
                 debug!("Expected one out of '{:?}', got {}", expected_states, self.state);
                 Err(SmtpError::bad_sequence(cmd, self.state.clone()))
+            }
+        }
+    }
+
+    /**
+    Handles an EHLO command.
+    Sends a list of available extensions.
+    */
+    async fn handle_ehlo(&mut self, cmd: &Command) -> Result<(), SmtpError> {
+        match self.state {
+            SmtpState::INIT => {
+                self.send("250-AUTH PLAIN\r\n".to_string()).await
+            },
+            _ => {
+                debug!("Bad sequence: Unexpected '{}' after '{}', expected to be in state INIT instead",
+                    SmtpState::EHLO, self.state);
+                Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
+            }
+        }
+    }
+    
+    async fn handle_auth(&mut self, cmd: &Command) -> Result<(), SmtpError> {
+        match self.state {
+            SmtpState::EHLO => {
+                let cap = match RE.auth_cmd.captures(cmd.message.as_str()) {
+                    Some(v) => match v.get(1) {
+                        Some(p) => Some(String::from(p.as_str())),
+                        None => None
+                    },
+                    None => None
+                };
+                
+                match cap {
+                    Some(arg) => {
+                        debug!("Parsed AUTH arg: '{}'", arg);
+                        self.auth = Some(auth::Auth::new(
+                            self.user_db.clone(),
+                            arg
+                        ));
+                        self.send("334 \r\n".to_string()).await?;
+                    },
+                    None => {
+                        debug!("AUTH: no arg found in '{}'", cmd.message.as_str());
+                        self.send("todo".to_string()).await?;
+                    }
+                }
+                Ok(())
+            },
+            _ => {
+                Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
             }
         }
     }
