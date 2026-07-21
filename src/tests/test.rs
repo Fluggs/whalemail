@@ -1,18 +1,5 @@
 use crate::smtp::smtp_error::SmtpError;
 
-/*
-
-        let last_msg = self.receive().unwrap_or_else(|| {
-            assert!(false, "Expected a message to be received, got None instead");
-            String::new()
-        });
-        info!("last msg: '{}'; expectation: '{}'",
-                 replace_newline(&last_msg),
-                 replace_newline(&expected_msg.to_string())
-        );
-        assert_eq!(last_msg.clone(), expected_msg.to_string(), "{}", format!("Expected to receive message {}, got {} instead", last_msg, expected_msg.to_string()));
- */
-
 #[cfg(test)]
 macro_rules! expect_msg {
     ($s:expr, $x:expr) => (
