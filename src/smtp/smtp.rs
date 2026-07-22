@@ -339,10 +339,7 @@ impl Smtp {
                 match cap {
                     Some(arg) => {
                         debug!("Parsed AUTH arg: '{}'", arg);
-                        self.auth = match auth::Auth::new(
-                            self.user_db.clone(),
-                            arg
-                        ) {
+                        self.auth = match auth::Auth::new(self.user_db.clone(), arg) {
                             Ok(auth) => {
                                 Some(auth)
                             },
@@ -350,12 +347,10 @@ impl Smtp {
                                 return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
                             }
                         };
-                        debug!("sending");
                         self.send("334 \r\n".to_string()).await?;
                     },
                     None => {
-                        debug!("AUTH: no arg found in '{}'", cmd.message.as_str());
-                        self.send("todo".to_string()).await?;
+                        return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
                     }
                 }
                 Ok(())
