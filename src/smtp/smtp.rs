@@ -279,8 +279,13 @@ impl Smtp {
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
             },
-            ErrorKind::BADPARAMETER => {
-                self.send("504 Bad parameter\r\n".to_string()).await
+            ErrorKind::BADAUTHMECH => {
+                self.send("535 5.7.8 Invalid authentication mechanism\r\n".to_string()).await
+                    .and(Ok(error))
+                    .or_else(|err| Err(err.io_error.unwrap()))
+            }
+            ErrorKind::BADCREDENTIALS => {
+                self.send("535 5.7.8 Unauthorized\r\n".to_string()).await
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
             }
@@ -315,7 +320,7 @@ impl Smtp {
     async fn handle_ehlo(&mut self, cmd: Command) -> Result<(), SmtpError> {
         match self.state {
             SmtpState::INIT => {
-                self.send("250-AUTH PLAIN\r\n".to_string()).await
+                self.send("250-AUTH PLAIN LOGIN\r\n".to_string()).await
             },
             _ => {
                 debug!("Bad sequence: Unexpected '{}' after '{}', expected to be in state INIT instead",
@@ -325,6 +330,9 @@ impl Smtp {
         }
     }
     
+    /**
+    Handles an AUTH command. Starts the SASL auth process.
+    */
     async fn handle_auth(&mut self, cmd: Command) -> Result<(), SmtpError> {
         match self.state {
             SmtpState::EHLO => {

@@ -9,7 +9,7 @@ use log::{debug, info};
 use rsasl::property::{AuthId, AuthzId, Password};
 use crate::auth::userdb::{UserDBMtx};
 
-static MECHANISMS: &[Mechanism] = &[plain::PLAIN];
+static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
 
 #[derive(Debug)]
 pub enum Error {
@@ -17,6 +17,27 @@ pub enum Error {
     NoMechanism,
 }
 
+pub enum AuthMech {
+    PLAIN,
+    LOGIN,
+}
+
+impl AuthMech {
+    fn from(mechname: &Mechname) -> Result<AuthMech, Error> {
+        //todo find some fancy iterator map solution
+        if mechname.eq("PLAIN") {
+            Ok(AuthMech::PLAIN)
+        } else if mechname.eq("LOGIN") {
+            Ok(AuthMech::LOGIN)
+        } else {
+            Err(Error::NoMechanism)
+        }
+    }
+}
+
+/**
+Represents an authenticated and authorized user/identity.
+*/
 pub struct Authorized {
     pub(crate) identity: String,
     username: String,
@@ -70,10 +91,17 @@ struct Writer {
 
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let buf = String::from_utf8_lossy(buf).to_string();
+        let buf = String::from_utf8_lossy(buf);
         let r = buf.len();
-        debug!("SASL writing to client: {}", buf);
-        self.write_buf = Some(buf);
+        debug!("SASL writing to client: '{}'", buf);
+        match self.write_buf {
+            Some(_) => {
+                self.write_buf.as_mut().unwrap().push_str(buf.as_ref());
+            }
+            None => {
+                self.write_buf = Some(buf.to_string())
+            }
+        }
 
         Ok(r)
     }
@@ -83,24 +111,27 @@ impl Write for Writer {
 
 pub struct Auth {
     session: Session<AuthValidation>,
-    writer: Writer
+    writer: Writer,
+    mechname: AuthMech,
 }
 
 impl Auth {
     pub(crate) fn new(user_db: UserDBMtx, selected: String) -> Result<Auth, Error> {
-        let selected = Mechname::parse(selected.as_ref()).unwrap();
+        let mechname = Mechname::parse(selected.as_ref()).unwrap();
         let callback = Callback{ user_db: user_db.clone() };
         let sasl = SASLConfig::builder()
             .with_registry(Registry::with_mechanisms(MECHANISMS))
             .with_callback(callback)
             .unwrap();
-        let session = match SASLServer::<AuthValidation>::new(sasl).start_suggested(selected) {
+        let session = match SASLServer::<AuthValidation>
+                ::new(sasl).start_suggested(mechname) {
             Ok(session) => session,
             Err(_) => return Err(Error::NoMechanism)
         };
         Ok(Auth {
             session,
-            writer: Writer { write_buf: None }
+            writer: Writer { write_buf: None },
+            mechname: AuthMech::from(mechname)?,
         })
     }
     
@@ -114,7 +145,10 @@ impl Auth {
     */
     pub(crate) fn step(&mut self, input: Option<&[u8]>) -> Result<Option<Authorized>, Error>{
         debug!("auth stepping {:?}", String::from_utf8_lossy(input.unwrap_or("<None>".as_bytes())));
-        let r = &self.session.step(input, &mut self.writer);
+        let r = match self.mechname {
+            AuthMech::PLAIN => self.session.step(input, &mut self.writer),
+            AuthMech::LOGIN => self.session.step64(input, &mut self.writer),
+        };
         
         match r {
             Ok(State::Finished(MessageSent::No)) => {},

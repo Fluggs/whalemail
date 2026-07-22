@@ -2,7 +2,7 @@
 mod tests_smtp {
     use crate::smtp::smtp::StateKind;
     use crate::tests::test::expect_msg;
-    use crate::tests::test::test::test_setup;
+    use crate::tests::test::test::{test_setup, EHLO_MSG};
 
     #[tokio::test]
     async fn test_init() {
@@ -69,7 +69,7 @@ mod tests_smtp {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
-        expect_msg!(s, "250-AUTH PLAIN\r\n");
+        expect_msg!(s, EHLO_MSG);
 
         s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");

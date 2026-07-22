@@ -59,6 +59,7 @@ pub mod test {
     use crate::storage::Storage;
     use crate::tests::test::{SmtpTest};
 
+    pub(crate) static EHLO_MSG: &str = "250-AUTH PLAIN LOGIN\r\n";
 
     #[cfg(test)]
     pub(crate) fn test_setup() -> Smtp {
