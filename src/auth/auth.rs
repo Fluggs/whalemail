@@ -14,6 +14,7 @@ static MECHANISMS: &[Mechanism] = &[plain::PLAIN];
 #[derive(Debug)]
 pub enum Error {
     AuthUnsuccessful,
+    NoMechanism,
 }
 
 pub struct Authorized {
@@ -86,17 +87,21 @@ pub struct Auth {
 }
 
 impl Auth {
-    pub(crate) fn new(user_db: UserDBMtx, selected: String) -> Auth {
+    pub(crate) fn new(user_db: UserDBMtx, selected: String) -> Result<Auth, Error> {
         let selected = Mechname::parse(selected.as_ref()).unwrap();
         let callback = Callback{ user_db: user_db.clone() };
         let sasl = SASLConfig::builder()
             .with_registry(Registry::with_mechanisms(MECHANISMS))
             .with_callback(callback)
             .unwrap();
-        Auth {
-            session: SASLServer::<AuthValidation>::new(sasl).start_suggested(selected).unwrap(),
-            writer: Writer{ write_buf: None }
-        }
+        let session = match SASLServer::<AuthValidation>::new(sasl).start_suggested(selected) {
+            Ok(session) => session,
+            Err(_) => return Err(Error::NoMechanism)
+        };
+        Ok(Auth {
+            session,
+            writer: Writer { write_buf: None }
+        })
     }
     
     /**

@@ -7,6 +7,7 @@ use crate::smtp::smtp::{SmtpState, Command};
 pub(crate) enum ErrorKind {
     BADCOMMAND,
     BADSEQUENCE,
+    BADPARAMETER,
     IOERROR,
 }
 
@@ -54,6 +55,15 @@ impl SmtpError {
     pub(crate) fn bad_sequence(cmd: &Command, state: SmtpState) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADSEQUENCE,
+            state: Some(state),
+            cmd: format!("{}", cmd.message),
+            io_error: None,
+        }
+    }
+
+    pub(crate) fn bad_parameter(cmd: &Command, state: SmtpState) -> SmtpError {
+        SmtpError {
+            kind: ErrorKind::BADPARAMETER,
             state: Some(state),
             cmd: format!("{}", cmd.message),
             io_error: None,

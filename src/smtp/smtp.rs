@@ -172,13 +172,13 @@ impl Smtp {
             },
             // INIT -> EHLO
             Some(SmtpState::EHLO) => {
-                self.handle_ehlo(&cmd)
+                self.handle_ehlo(cmd)
                     .await
                     .and(Ok(SmtpState::EHLO))
             },
             // EHLO -> AUTH
             Some(SmtpState::AUTH) => {
-                self.handle_auth(&cmd)
+                self.handle_auth(cmd)
                     .await
                     .and(Ok(SmtpState::AUTH))
             }
@@ -279,6 +279,11 @@ impl Smtp {
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
             },
+            ErrorKind::BADPARAMETER => {
+                self.send("504 Bad parameter\r\n".to_string()).await
+                    .and(Ok(error))
+                    .or_else(|err| Err(err.io_error.unwrap()))
+            }
             ErrorKind::IOERROR => Err(error.io_error.unwrap()),
         }
     }
@@ -307,7 +312,7 @@ impl Smtp {
     Handles an EHLO command.
     Sends a list of available extensions.
     */
-    async fn handle_ehlo(&mut self, cmd: &Command) -> Result<(), SmtpError> {
+    async fn handle_ehlo(&mut self, cmd: Command) -> Result<(), SmtpError> {
         match self.state {
             SmtpState::INIT => {
                 self.send("250-AUTH PLAIN\r\n".to_string()).await
@@ -320,7 +325,7 @@ impl Smtp {
         }
     }
     
-    async fn handle_auth(&mut self, cmd: &Command) -> Result<(), SmtpError> {
+    async fn handle_auth(&mut self, cmd: Command) -> Result<(), SmtpError> {
         match self.state {
             SmtpState::EHLO => {
                 let cap = match RE.auth_cmd.captures(cmd.message.as_str()) {
@@ -334,10 +339,18 @@ impl Smtp {
                 match cap {
                     Some(arg) => {
                         debug!("Parsed AUTH arg: '{}'", arg);
-                        self.auth = Some(auth::Auth::new(
+                        self.auth = match auth::Auth::new(
                             self.user_db.clone(),
                             arg
-                        ));
+                        ) {
+                            Ok(auth) => {
+                                Some(auth)
+                            },
+                            Err(_) => {
+                                return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
+                            }
+                        };
+                        debug!("sending");
                         self.send("334 \r\n".to_string()).await?;
                     },
                     None => {

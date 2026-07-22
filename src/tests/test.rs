@@ -8,8 +8,8 @@ macro_rules! expect_msg {
             last_msg.clone(),
             $x.to_string(),
             "Expected to receive message '{}', got '{}' instead",
+            &$x.to_string().replace("\n", "\\n").replace("\r", "\\r"),
             &last_msg.replace("\n", "\\n").replace("\r", "\\r"),
-            &$x.to_string().replace("\n", "\\n").replace("\r", "\\r")
         )
     );
 }
