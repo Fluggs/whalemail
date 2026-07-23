@@ -230,7 +230,7 @@ impl SessionCallback for Callback {
             Ok((user, password)) => (user, password),
             Err(_) => return Ok(())
         };
-        debug!("Validation for user {} for identity {}", user.username, user.identity);
+        debug!("Validation for user {} for identity {} with pw {}", user.username, user.identity, password);
         if self.user_db.lock().unwrap().authorize(&user, password) {
             debug!("Authorizing user {} for identity {}", user.username, user.identity);
             validate.finalize::<AuthValidation>(Ok(user))

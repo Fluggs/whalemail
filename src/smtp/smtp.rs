@@ -391,7 +391,7 @@ impl Smtp {
                     .and(Ok(SmtpState::EHLO))
             },
             Err(_) => {
-                return Err(SmtpError::bad_credentials(cmd, self.state.clone()))
+                Err(SmtpError::bad_credentials(cmd, self.state.clone()))
             }
         }
     }
