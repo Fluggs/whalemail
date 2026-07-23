@@ -44,7 +44,7 @@ impl Into<Error> for SmtpError {
 }
 
 impl SmtpError {
-    pub(crate) fn bad_command(cmd: Command) -> SmtpError {
+    pub(crate) fn bad_command(cmd: &Command) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADCOMMAND,
             state: None,

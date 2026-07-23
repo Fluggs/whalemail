@@ -61,16 +61,30 @@ impl Command {
             message: s,
         }
     }
+
+    /**
+    Returns a copy of Command.message with trailing \r\n removed.
+    */
+    fn msg_strip_lf(&self) -> Result<String, SmtpError> {
+        let r = match self.message.ends_with("\r\n") {
+            true => Ok(self.message[0..self.message.len() - 2].to_string()),
+            false => Err(SmtpError::bad_command(self))
+        };
+        debug!("Turning '{:?}' into '{:?}'", self.message, r);
+        r
+    }
 }
 
 // Regex Patterns
 struct Patterns {
+    lf: Regex,
     mail_end: Regex,
     period_linestart: Regex,
     auth_cmd: Regex,
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
+    lf: Regex::new(r"\r\n$").unwrap(),
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
     auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
@@ -235,7 +249,7 @@ impl Smtp {
                     },
                     _ => {
                         info!("Unrecognized SMTP message: \"{}\"", cmd.message);
-                        Err(SmtpError::bad_command(cmd))
+                        Err(SmtpError::bad_command(&cmd))
                     }
                 }
             },
@@ -379,7 +393,7 @@ impl Smtp {
     }
     
     async fn handle_auth_step(&mut self, cmd: &Command) -> Result<SmtpState, SmtpError> {
-        match self.auth.as_mut().unwrap().step(Some(cmd.message.as_ref())) {
+        match self.auth.as_mut().unwrap().step(Some(cmd.msg_strip_lf()?.as_ref())) {
             Ok(None) => {
                 self.auth_flush().await?;
                 Ok(SmtpState::AUTH)
@@ -461,7 +475,7 @@ impl Smtp {
         
         match parse {
             Some(rcpt) => Ok(rcpt),
-            None => Err(SmtpError::bad_command(cmd).push_state(self.state.clone()))
+            None => Err(SmtpError::bad_command(&cmd).push_state(self.state.clone()))
         }
     }
     
