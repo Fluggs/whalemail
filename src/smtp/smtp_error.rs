@@ -80,10 +80,10 @@ impl SmtpError {
         }
     }
 
-    pub(crate) fn from_io(io_err: Error, state: SmtpState) -> SmtpError {
+    pub(crate) fn from_io(io_err: Error) -> SmtpError {
         SmtpError {
             kind: ErrorKind::IOERROR,
-            state: Some(state),
+            state: None,
             cmd: "io error".to_string(),
             io_error: Some(io_err),
         }

@@ -76,9 +76,32 @@ static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
 });
 
-pub struct Smtp {
+pub struct ConnectionWriter {
     pub(crate) conn: Option<ConnectionHandler>,
     pub(crate) conn_testbed: Option<SmtpTest>,
+}
+
+impl ConnectionWriter {
+    pub(crate) async fn send(&mut self, s: String) -> Result<(), SmtpError> {
+        match &self.conn {
+            Some(c) => c.send(s).await
+                .or_else(|error| Err(SmtpError::from_io(error))),
+            None => {
+                debug!("Sending test message '{}'", s);
+                let mut r = Ok(());
+                if cfg!(test) {
+                    r = self.conn_testbed.as_mut().unwrap().send(s);
+                } else if cfg!(not(test)) {
+                    panic!("No connection handler present");
+                }
+                r
+            },
+        }
+    }
+}
+
+pub struct Smtp {
+    pub(crate) conn_writer: ConnectionWriter,
     pub(crate) closed: bool,
     
     pub(crate) state: SmtpState,
@@ -95,8 +118,10 @@ pub struct Smtp {
 impl Smtp {
     pub fn new (connhandler: ConnectionHandler, user_db: UserDBMtx, storage: Storage) -> Smtp {
         Smtp {
-            conn: Some(connhandler),
-            conn_testbed: None,
+            conn_writer: ConnectionWriter {
+                conn: Some(connhandler),
+                conn_testbed: None,
+            },
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
@@ -110,8 +135,10 @@ impl Smtp {
     #[cfg(test)]
     pub fn new_testbed (testbed: SmtpTest, user_db: UserDBMtx, storage: Storage) -> Smtp {
         Smtp {
-            conn: None,
-            conn_testbed: Some(testbed),
+            conn_writer: ConnectionWriter {
+                conn: None,
+                conn_testbed: Some(testbed),
+            },
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
@@ -124,19 +151,7 @@ impl Smtp {
     }
     
     async fn send(&mut self, s: String) -> Result<(), SmtpError> {
-        match &self.conn {
-            Some(c) => c.send(s).await
-                .or_else(|error| Err(SmtpError::from_io(error, self.state.clone()))),
-            None => {
-                let mut r = Ok(());
-                if cfg!(test) {
-                    r = self.conn_testbed.as_mut().unwrap().send(s);
-                } else if cfg!(not(test)) {
-                    panic!("No connection handler present");
-                }
-                r
-            },
-        }
+        self.conn_writer.send(s).await
     }
     
     pub async fn init_smtp(&mut self) -> Result<(), SmtpError> {
@@ -216,20 +231,7 @@ impl Smtp {
                     },
                     SmtpState::AUTH => {
                         debug!("Auth step");
-                        match self.auth.as_mut().unwrap().step(Some(cmd.message.as_ref())) {
-                            Ok(None) => Ok(SmtpState::AUTH),
-                            Ok(Some(authorized)) => {
-                                self.authorized = Some(authorized);
-                                self.send("235 2.7.0 Authentication successful\r\n".to_string())
-                                    .await
-                                    .and(Ok(SmtpState::EHLO))
-                            },
-                            Err(_) => {
-                                self.send("535 Unauthorized\r\n".to_string())
-                                    .await
-                                    .and(Ok(SmtpState::EHLO))
-                            }
-                        }
+                        self.handle_auth_step(&cmd).await
                     },
                     _ => {
                         info!("Unrecognized SMTP message: \"{}\"", cmd.message);
@@ -330,6 +332,13 @@ impl Smtp {
         }
     }
     
+    async fn auth_flush(&mut self) -> Result<(), SmtpError> {
+        self.auth.as_mut().expect("missing auth object")
+            .flush(&mut self.conn_writer, "334 ".to_string(), "\r\n")
+            .await
+            .or_else(|e| Err(SmtpError::from_io(e)))
+    }
+    
     /**
     Handles an AUTH command. Starts the SASL auth process.
     */
@@ -355,7 +364,7 @@ impl Smtp {
                                 return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
                             }
                         };
-                        self.send("334 \r\n".to_string()).await?;
+                        self.auth_flush().await?;
                     },
                     None => {
                         return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
@@ -365,6 +374,24 @@ impl Smtp {
             },
             _ => {
                 Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
+            }
+        }
+    }
+    
+    async fn handle_auth_step(&mut self, cmd: &Command) -> Result<SmtpState, SmtpError> {
+        match self.auth.as_mut().unwrap().step(Some(cmd.message.as_ref())) {
+            Ok(None) => {
+                self.auth_flush().await?;
+                Ok(SmtpState::AUTH)
+            },
+            Ok(Some(authorized)) => {
+                self.authorized = Some(authorized);
+                self.send("235 2.7.0 Authentication successful\r\n".to_string())
+                    .await
+                    .and(Ok(SmtpState::EHLO))
+            },
+            Err(_) => {
+                return Err(SmtpError::bad_credentials(cmd, self.state.clone()))
             }
         }
     }

@@ -7,7 +7,9 @@ use rsasl::mechanisms::*;
 use rsasl::registry::{Mechanism, Registry};
 use log::{debug, info};
 use rsasl::property::{AuthId, AuthzId, Password};
+use tokio::io;
 use crate::auth::userdb::{UserDBMtx};
+use crate::smtp::smtp::ConnectionWriter;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
 
@@ -89,6 +91,23 @@ struct Writer {
     write_buf: Option<String>,
 }
 
+impl Writer {
+    /**
+    If this Writer has a filled buffer, sends it via ConnectionWriter.
+    If the buffer is not filled, does nothing and silently returns Ok(()).
+    */
+    async fn flush_to_connwriter(&mut self, conn: &mut ConnectionWriter, mut prefix: String, suffix: &str) -> io::Result<()> {
+        match self.write_buf.take() {
+            Some(buf) => {
+                prefix.push_str(buf.as_str());
+            }
+            None => { }
+        };
+        prefix.push_str(suffix);
+        conn.send(prefix).await.or_else(|e| Err(e.io_error.expect("Expected io error")))
+    }
+}
+
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let buf = String::from_utf8_lossy(buf);
@@ -106,7 +125,7 @@ impl Write for Writer {
         Ok(r)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> io::Result<()> { unimplemented!() }
 }
 
 pub struct Auth {
@@ -128,11 +147,22 @@ impl Auth {
             Ok(session) => session,
             Err(_) => return Err(Error::NoMechanism)
         };
-        Ok(Auth {
+        
+        let mut r = Auth {
             session,
             writer: Writer { write_buf: None },
             mechname: AuthMech::from(mechname)?,
-        })
+        };
+        
+        match &r.mechname {
+            AuthMech::PLAIN => {}
+            AuthMech::LOGIN => {
+                debug!("Doing initial step for mech LOGIN");
+                r.session.step64(None, &mut r.writer).expect("Expected state");
+            }
+        };
+        
+        Ok(r)
     }
     
     /**
@@ -177,6 +207,12 @@ impl Auth {
             },
             None => Err(Error::AuthUnsuccessful)
         }
+    }
+    
+    pub(crate) async fn flush(&mut self, conn_writer: &mut ConnectionWriter, prefix: String, suffix: &str)
+            -> Result<(), io::Error>
+    {
+        self.writer.flush_to_connwriter(conn_writer, prefix, suffix).await
     }
 }
 

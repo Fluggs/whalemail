@@ -32,10 +32,10 @@ impl ConnectionHandler {
                 // drop closes socket
                 break;
             }
-            smtp.conn.as_ref().unwrap().socket.readable().await?;
+            smtp.conn_writer.conn.as_ref().unwrap().socket.readable().await?;
 
             let mut buf = [0; 4096];
-            match smtp.conn.as_ref().unwrap().socket.try_read(&mut buf) {
+            match smtp.conn_writer.conn.as_ref().unwrap().socket.try_read(&mut buf) {
                 Ok(0) => {
                     info!("Connection closed by client.");
                     break

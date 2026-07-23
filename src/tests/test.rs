@@ -3,7 +3,7 @@ use crate::smtp::smtp_error::SmtpError;
 #[cfg(test)]
 macro_rules! expect_msg {
     ($s:expr, $x:expr) => (
-        let last_msg = $s.conn_testbed.as_mut().unwrap().receive().unwrap_or("<None>".to_string());
+        let last_msg = $s.conn_writer.conn_testbed.as_mut().unwrap().receive().unwrap_or("<None>".to_string());
         assert_eq!(
             last_msg.clone(),
             $x.to_string(),

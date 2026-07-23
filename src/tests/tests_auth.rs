@@ -77,14 +77,15 @@ mod tests_auth {
         expect_msg!(s, EHLO_MSG);
 
         s.handle("AUTH LOGIN\r\n".to_string()).await.unwrap();
-        expect_msg!(s, "334 \r\n");
+        expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
         s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
 
         s.handle(BASE64_STANDARD.encode(b"spongebob").to_string()).await.unwrap();
-        expect_msg!(s, "535 5.7.8 Unauthorized\r\n");
-
-        assert!(false);
+        expect_msg!(s, "334 UGFzc3dvcmQA\r\n");
+        
+        s.handle(BASE64_STANDARD.encode(b"pineapple!").to_string()).await.unwrap();
+        expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
     #[tokio::test]
@@ -97,13 +98,11 @@ mod tests_auth {
         expect_msg!(s, EHLO_MSG);
 
         s.handle("AUTH LOGIN\r\n".to_string()).await.unwrap();
-        expect_msg!(s, "334 \r\n");
+        expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
         s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
 
         s.handle("spongebob\0".to_string()).await.unwrap();
         expect_msg!(s, "535 5.7.8 Unauthorized\r\n");
-
-        assert!(false);
     }
 }

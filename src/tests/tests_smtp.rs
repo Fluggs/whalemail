@@ -115,7 +115,7 @@ mod tests_smtp {
 
         s.handle(mailct_1.clone()).await.unwrap();
         assert!(!s.mail.is_finished());
-        s.conn_testbed.as_mut().unwrap().expect_no_msg();
+        s.conn_writer.conn_testbed.as_mut().unwrap().expect_no_msg();
 
         s.handle(mailct_2.clone()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
