@@ -77,14 +77,12 @@ impl Command {
 
 // Regex Patterns
 struct Patterns {
-    lf: Regex,
     mail_end: Regex,
     period_linestart: Regex,
     auth_cmd: Regex,
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
-    lf: Regex::new(r"\r\n$").unwrap(),
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
     auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
