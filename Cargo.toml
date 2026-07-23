@@ -13,3 +13,4 @@ regex = "1.12.3"
 uuid = { version = "1.23.2", features = ["v4"] }
 rsasl = { version = "2.3.1", default-features = false, features = ["provider_base64", "unstable_custom_mechanism", "config_builder", "plain", "login"] }
 base64 = "0.22.1"
+rust-ini = "0.21.3"

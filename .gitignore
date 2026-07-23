@@ -1,5 +1,6 @@
 /target
 Cargo.lock
+conf.ini
 
 *.db
 rsmtpd
