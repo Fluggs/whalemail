@@ -22,8 +22,8 @@ impl ConnectionHandler {
         }
     }
     
-    pub async fn process_socket(self, user_db: UserDBMtx) -> io::Result<()> {
-        let mut smtp = Smtp::new(self, user_db, Storage { directory: "todo_dir".to_string() });
+    pub async fn process_socket(self, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
+        let mut smtp = Smtp::new(self, user_db, Storage { directory: storage_dir });
         smtp.init_smtp().await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         
