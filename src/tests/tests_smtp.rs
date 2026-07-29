@@ -1,12 +1,13 @@
 #[cfg(test)]
 mod tests_smtp {
-    use crate::smtp::smtp::StateKind;
+    use tokio::net::TcpStream;
+    use crate::smtp::smtp::{Smtp, StateKind};
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{test_setup, EHLO_MSG};
 
     #[tokio::test]
     async fn test_init() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
 
         expect_msg!(s, "220 hi\r\n");
@@ -14,7 +15,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_n_unknown_cmd() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -30,7 +31,7 @@ mod tests_smtp {
         let sender = "sender@test.org";
         let rcpt = "rcv@whalemail.net";
 
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -64,7 +65,7 @@ mod tests_smtp {
         let sender = "sender@test.org";
         let rcpt = "rcv@whalemail.net";
 
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -97,7 +98,7 @@ mod tests_smtp {
     async fn test_n_mail_parts() {
         let mailct_1 = "<mailblob> blob blob\r\n".to_string();
         let mailct_2 = "more blob\r\n.\r\n".to_string();
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -132,7 +133,7 @@ mod tests_smtp {
     async fn test_helo_multiple_rcpt() {
         let rcpt1 = "rcv1@whalemail.net";
         let rcpt2 = "rcv2@whalemail.net";
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -153,7 +154,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_n_omit_rcpt() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -172,7 +173,7 @@ mod tests_smtp {
      */
     #[test]
     fn test_dtp_empty_s() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let expected = "".to_string();
         assert_eq!(smtp.decode_transparency(expected.clone()), false);
         assert_eq!(smtp.mail.body, expected);
@@ -180,7 +181,7 @@ mod tests_smtp {
 
     #[test]
     fn test_dtp_simple_mail() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let expected = "blub\r\n.\r\n".to_string();
         assert_eq!(smtp.decode_transparency(expected.clone()), true);
         assert_eq!(smtp.mail.body, expected);
@@ -193,7 +194,7 @@ mod tests_smtp {
         We interpret this as the end of mail, so functionally an empty mail.
      */
     fn test_dtp_first_line_transparency() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let input = ".\r\n.\r\n".to_string();
         let expected = ".\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), true);
@@ -202,7 +203,7 @@ mod tests_smtp {
 
     #[test]
     fn test_dtp_multi_line_transparency() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let input = ".abc\r\n.bcdef\r\ng\r\n.\r\n".to_string();
         let expected = "abc\r\nbcdef\r\ng\r\n.\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), true);
@@ -211,7 +212,7 @@ mod tests_smtp {
 
     #[test]
     fn test_dtp_double_period_transparency() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let input = "..a\r\n..bc\r\n.\r\n".to_string();
         let expected = ".a\r\n.bc\r\n.\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), true);
@@ -220,7 +221,7 @@ mod tests_smtp {
 
     #[test]
     fn test_dtp_multi_line_transparency_no_end() {
-        let mut smtp = test_setup();
+        let mut smtp: Smtp<TcpStream> = test_setup();
         let input = ".abc\r\n.bcdef\r\n".to_string();
         let expected = "abc\r\nbcdef\r\n".to_string();
         assert_eq!(smtp.decode_transparency(input), false);

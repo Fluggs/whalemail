@@ -2,6 +2,8 @@
 mod tests_auth {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
+    use tokio::net::TcpStream;
+    use crate::smtp::smtp::Smtp;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{test_setup, EHLO_MSG};
     
@@ -13,7 +15,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_unknown_mech() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -26,7 +28,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_no_mech() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -39,7 +41,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_success() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -57,7 +59,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_wrong_pw() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -75,7 +77,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_login_success() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
@@ -96,7 +98,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_login_invalid_input() {
-        let mut s = test_setup();
+        let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
 
