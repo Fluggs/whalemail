@@ -55,6 +55,7 @@ impl SmtpTest {
 pub mod test {
     use env_logger::Env;
     use crate::auth::userdb::UserDB;
+    use crate::net::IO;
     use crate::smtp::smtp::Smtp;
     use crate::storage::Storage;
     use crate::tests::test::{SmtpTest};
@@ -62,7 +63,7 @@ pub mod test {
     pub(crate) static EHLO_MSG: &str = "250-AUTH PLAIN LOGIN\r\n";
 
     #[cfg(test)]
-    pub(crate) fn test_setup() -> Smtp {
+    pub(crate) fn test_setup<T: IO>() -> Smtp<T> {
         match env_logger::Builder::from_env(Env::default().default_filter_or("debug"))
             .is_test(true).try_init() {
             Ok(()) => {},

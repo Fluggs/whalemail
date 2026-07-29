@@ -29,6 +29,7 @@ use log;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
 use crate::auth::userdb::{UserDB, UserDBMtx};
+use crate::net::IO;
 
 struct TlsListener {
     acceptor: TlsAcceptor,
@@ -104,13 +105,14 @@ async fn main() -> io::Result<()> {
                 debug!("New connection on tls port from {}", addr);
                 let tls_acceptor = &tls_listener.acceptor.clone();
                 let tlsstream = tls_acceptor.accept(tcp_stream).await?;
+                process_socket_silent(tlsstream, addr, user_db.clone(), config.maildir_root.clone()).await
             }
         }
     }
 }
 
-async fn process_socket_silent(socket: TcpStream, addr: SocketAddr, user_db: UserDBMtx, storage_dir: String) {
-    let handler = ConnectionHandler::new(socket, addr);
+async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, user_db: UserDBMtx, storage_dir: String) {
+    let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
     match handler.process_socket(user_db, storage_dir).await {
         Ok(()) => (),
