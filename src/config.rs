@@ -3,7 +3,7 @@ use ini::Ini;
 pub(crate) struct Config {
     pub(crate) log_level: String,
     pub(crate) bind_ip: String,
-    pub(crate) tls_bind_ip: String,
+    pub(crate) bind_ip_tls: String,
     pub(crate) maildir_root: String,
     pub(crate) cert_dir: Option<String>,
     pub(crate) trusted_ca_cert_dir: Option<String>,
@@ -18,7 +18,7 @@ impl Config {
         Config {
             log_level: conf.get("log_level").or(Some("debug")).unwrap().to_string(),
             bind_ip: conf.get("bind_ip").or(Some("127.0.0.1:25")).unwrap().to_string(),
-            tls_bind_ip: conf.get("bind_ip").or(Some("127.0.0.1:4465")).unwrap().to_string(),
+            bind_ip_tls: conf.get("bind_ip_tls").or(Some("127.0.0.1:465")).unwrap().to_string(),
             maildir_root: conf.get("maildir").or(Some("maildir")).unwrap().to_string(),
             cert_dir: conf.get("cert_dir").and_then(|s| Some(s.to_string())),
             trusted_ca_cert_dir: Some(conf.get("trusted_ca_cert_dir").or(Some("/etc/ssl/certs")).unwrap().to_string()),

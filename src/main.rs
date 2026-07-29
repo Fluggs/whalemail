@@ -54,10 +54,10 @@ async fn main() -> io::Result<()> {
     let tls_listener = match (&config.cert_dir, &config.trusted_ca_cert_dir) {
         (Some(cert_dir), Some(ca_dir)) => {
             let acceptor = tls::build_tls_acceptor(config.cert_dir.unwrap(), config.trusted_ca_cert_dir.unwrap());
-            let listener = TcpListener::bind(config.tls_bind_ip.clone())
+            let listener = TcpListener::bind(config.bind_ip_tls.clone())
                 .await
                 .or_else(|err| {
-                    println!("Binding to {} failed.", &config.tls_bind_ip);
+                    println!("Binding to {} failed.", &config.bind_ip_tls);
                     Err(err)
                 })?;
             Some(TlsListener {
