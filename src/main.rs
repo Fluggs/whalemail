@@ -20,15 +20,13 @@ mod tests {
     mod tests_smtp;
 }
 
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use std::io;
 use std::net::SocketAddr;
 use net::ConnectionHandler;
 use env_logger;
 use log;
 use log::{debug};
-use rustls::SupportedCipherSuite::Tls12;
-use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_rustls::TlsAcceptor;
 use crate::auth::userdb::{UserDB, UserDBMtx};
 
@@ -52,7 +50,7 @@ async fn main() -> io::Result<()> {
 
     // Build TlsListener if config values for certs are provided
     let tls_listener = match (&config.cert_dir, &config.trusted_ca_cert_dir) {
-        (Some(cert_dir), Some(ca_dir)) => {
+        (Some(_cert_dir), Some(_ca_dir)) => {
             let acceptor = tls::build_tls_acceptor(config.cert_dir.unwrap(), config.trusted_ca_cert_dir.unwrap());
             let listener = TcpListener::bind(config.bind_ip_tls.clone())
                 .await

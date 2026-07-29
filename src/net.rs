@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::str;
 use log::{debug, info};
@@ -10,7 +10,7 @@ use crate::smtp::smtp_error::SmtpError;
 use crate::storage::Storage;
 
 pub(crate) trait IO: AsyncRead + AsyncWrite + Unpin {}
-impl<T: AsyncRead + AsyncReadExt + AsyncWrite + AsyncWriteExt + Unpin> IO for T {}
+impl<T: AsyncReadExt + AsyncWriteExt + Unpin> IO for T {}
 
 pub struct ConnectionHandler<T: IO> {
     socket: T,

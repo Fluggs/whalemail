@@ -5,13 +5,7 @@ use rustls::{RootCertStore, ServerConfig};
 use std::{fs, io};
 use std::sync::Arc;
 use log::debug;
-use rustls::server::Acceptor;
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::io::AsyncReadExt;
-use tokio_rustls::{LazyConfigAcceptor, TlsAcceptor, TlsConnector};
-use tokio_rustls::server::TlsStream;
-use crate::auth::userdb::UserDB;
-use crate::tls;
+use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 #[derive(Debug)]
 struct CertErr {
@@ -138,13 +132,4 @@ pub(crate) fn build_tls_connector(cert_dir: String, trusted_ca_cert_dir: String)
         .with_no_client_auth();
 
     TlsConnector::from(Arc::new(client_config))
-}
-
-pub(crate) async fn build_tls_socket(bind_addr: String, cert_dir: String, trusted_ca_cert_dir: String)
-        -> Result<(), io::Error> {
-    let listener = TcpListener::bind(&bind_addr).await?;
-
-    let acceptor = build_tls_acceptor(cert_dir, trusted_ca_cert_dir);
-
-    Ok(())
 }
