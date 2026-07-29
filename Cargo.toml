@@ -5,12 +5,15 @@ edition = "2024"
 
 [dependencies]
 strum = { version = "0.28.0", features = ["derive"] }
-tokio = { version = "1.45.1", features = ["rt", "macros", "net", "fs"] }
+tokio = { version = "1.45.1", features = ["rt", "macros", "net", "fs", "io-util"] }
 log = "0.4.29"
 env_logger = "0.11.10"
 strum_macros = "0.28.0"
 regex = "1.12.3"
 uuid = { version = "1.23.2", features = ["v4"] }
 rsasl = { version = "2.3.1", default-features = false, features = ["provider_base64", "unstable_custom_mechanism", "config_builder", "plain", "login"] }
-base64 = "0.22.1"
+base64 = "0.23.0"
 rust-ini = "0.21.3"
+rustls-pki-types = { version = "1.15.1", features = ["alloc", "std"] }
+rustls = "0.23.42"
+tokio-rustls = "0.26.4"
