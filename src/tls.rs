@@ -69,14 +69,16 @@ fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertE
     let mut root_cert_store = RootCertStore::empty();
 
     while let Some(cert) = ca_certs.pop() {
-        root_cert_store.add(cert).unwrap();
+        root_cert_store.add(cert).expect("Error adding CA cert to cert store");
     }
     
     Ok(root_cert_store)
 }
 
 fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
-    let reader = fs::read(file.into()).unwrap();
+    let path = file.into();
+    let reader = fs::read(&path)
+        .expect(format!("Error reading certs from file '{:?}'", &path).as_str());
     let mut cursor = io::Cursor::new(reader);
 
     let mut certs: Vec<CertificateDer> = Vec::new();
@@ -90,7 +92,8 @@ fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
 }
 
 pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) -> TlsAcceptor {
-    let root_cert_store = read_ca_certs(trusted_ca_cert_dir).expect("Error reading ca cert dir");
+    let root_cert_store = read_ca_certs(trusted_ca_cert_dir.clone())
+        .expect(format!("Error reading ca cert dir '{}'", trusted_ca_cert_dir).as_str());
 
     debug!("Root cert store: {:?}", root_cert_store);
 
@@ -103,13 +106,14 @@ pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) 
     privkey_path.push(&cert_dir);
     privkey_path.push("privkey.pem");
     println!("Trying to read privkey from {:?}", privkey_path);
-    let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path).unwrap();
+    let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path.clone())
+        .expect(format!("Error reading TLS private key from file '{:?}'", privkey_path).as_str());
     println!("privkey read: {:?}", privkey);
 
     let server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, privkey)
-        .unwrap();
+        .expect("Error building TLS server config");
     
     TlsAcceptor::from(Arc::new(server_config))
 }
@@ -124,7 +128,8 @@ pub(crate) fn build_tls_connector(cert_dir: String, trusted_ca_cert_dir: String)
     privkey_path.push(&cert_dir);
     privkey_path.push("privkey.pem");
     println!("Trying to read privkey from {:?}", privkey_path);
-    let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path).unwrap();
+    let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path.clone())
+        .expect(format!("Error reading TLS private key from file '{:?}'", privkey_path).as_str());
     println!("privkey read: {:?}", privkey);
 
     let client_config = rustls::ClientConfig::builder()
