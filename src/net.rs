@@ -1,30 +1,38 @@
 use std::io;
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read};
 use std::net::SocketAddr;
 use std::str;
-use tokio::net::TcpStream;
 use log::{debug, info};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::auth::userdb::{UserDBMtx};
 use crate::smtp::smtp::{Smtp, StateKind};
 use crate::smtp::smtp_error::SmtpError;
 use crate::storage::Storage;
 
-pub struct ConnectionHandler {
-    socket: TcpStream,
+pub(crate) trait IO: AsyncRead + AsyncWrite + Unpin {}
+impl<T: AsyncRead + AsyncReadExt + AsyncWrite + AsyncWriteExt + Unpin> IO for T {}
+
+pub struct ConnectionHandler<T: IO> {
+    socket: T,
     pub(crate) addr: SocketAddr,
 }
 
-impl ConnectionHandler {
-    pub fn new<'a> (socket: TcpStream, addr: SocketAddr) -> ConnectionHandler {
+impl<T: IO> ConnectionHandler<T> {
+    pub fn new<'a> (socket: T, addr: SocketAddr) -> ConnectionHandler<T> {
         ConnectionHandler {
             socket,
             addr,
         }
     }
+
+    async fn read(&mut self, buf: & mut [u8]) -> io::Result<usize> {
+        self.socket.read(buf).await
+    }
     
     pub async fn process_socket(self, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
         let mut smtp = Smtp::new(self, user_db, Storage { directory: storage_dir });
-        smtp.init_smtp().await
+        smtp.init_smtp()
+            .await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         
         loop {
@@ -32,15 +40,14 @@ impl ConnectionHandler {
                 // drop closes socket
                 break;
             }
-            smtp.conn_writer.conn.as_ref().unwrap().socket.readable().await?;
 
             let mut buf = [0; 4096];
-            match smtp.conn_writer.conn.as_ref().unwrap().socket.try_read(&mut buf) {
-                Ok(0) => {
+            match smtp.connhandler_mut().read(&mut buf).await? {
+                0 => {
                     info!("Connection closed by client.");
                     break
                 },
-                Ok(n) => {
+                n => {
                     debug!("---- Reading {n} bytes");
                     let v = match str::from_utf8(&buf[..n]) { // todo consider from_utf8_lossy
                         Ok(v) => v.to_string(),
@@ -58,46 +65,21 @@ impl ConnectionHandler {
                         Ok(StateKind::CONTINUE) => (),
                         Err(e) => return Err(e.into())
                     };
-                }
-
-                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
+                },
             }
         }
 
         Ok(())
     }
     
-    pub async fn send(&self, msg: String) -> io::Result<()> {
-        self.socket.writable().await?;
-
-        loop {
-            self.socket.writable().await?;
-            let msg = msg.as_bytes();
-            
-            match self.socket.try_write(msg) {
-                Ok(n) => {
-                    if n < msg.len() {
-                        let err = format!("Tried to write {} bytes but only {} were written.", msg.len(), n);
-                        debug!("{err}");
-                        Error::new(ErrorKind::Other, err);
-                    }
-                    break;
-                }
-                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
+    pub async fn send(&mut self, msg: String) -> io::Result<()> {
+        match self.socket.write(msg.as_bytes()).await? {
+            n if n < msg.len() => {
+                let err = format!("Tried to write {} bytes but only {} were written.", msg.len(), n);
+                debug!("{err}");
+                Err(Error::new(ErrorKind::Other, err))
+            },
+            _ => Ok(())
         }
-        debug!("---- {msg}");
-        
-        Ok(())
     }
 }

@@ -136,7 +136,7 @@ pub(crate) fn build_tls_connector(cert_dir: String, trusted_ca_cert_dir: String)
     let client_config = rustls::ClientConfig::builder()
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
-    
+
     TlsConnector::from(Arc::new(client_config))
 }
 

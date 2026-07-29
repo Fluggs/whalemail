@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::auth::auth;
 use crate::auth::auth::Authorized;
 use crate::auth::userdb::{UserDBMtx};
-use crate::net::ConnectionHandler;
+use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp::smtp_mail::SmtpMail;
@@ -88,14 +88,14 @@ static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
 });
 
-pub struct ConnectionWriter {
-    pub(crate) conn: Option<ConnectionHandler>,
+pub struct ConnectionWriter<T: IO> {
+    pub(crate) conn: Option<ConnectionHandler<T>>,
     pub(crate) conn_testbed: Option<SmtpTest>,
 }
 
-impl ConnectionWriter {
+impl<T: IO> ConnectionWriter<T> {
     pub(crate) async fn send(&mut self, s: String) -> Result<(), SmtpError> {
-        match &self.conn {
+        match &mut self.conn {
             Some(c) => c.send(s).await
                 .or_else(|error| Err(SmtpError::from_io(error))),
             None => {
@@ -112,8 +112,8 @@ impl ConnectionWriter {
     }
 }
 
-pub struct Smtp {
-    pub(crate) conn_writer: ConnectionWriter,
+pub struct Smtp<T: IO> {
+    pub(crate) conn_writer: ConnectionWriter<T>,
     pub(crate) closed: bool,
     
     pub(crate) state: SmtpState,
@@ -127,8 +127,8 @@ pub struct Smtp {
     auth: Option<auth::Auth>,
 }
 
-impl Smtp {
-    pub fn new (connhandler: ConnectionHandler, user_db: UserDBMtx, storage: Storage) -> Smtp {
+impl<T: IO> Smtp<T> {
+    pub fn new<'a>(connhandler: ConnectionHandler<T>, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: Some(connhandler),
@@ -145,7 +145,7 @@ impl Smtp {
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest, user_db: UserDBMtx, storage: Storage) -> Smtp {
+    pub fn new_testbed (testbed: SmtpTest, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: None,
@@ -160,6 +160,11 @@ impl Smtp {
             auth: None,
             authorized: None,
         }
+    }
+    
+    pub(crate) fn connhandler_mut(&mut self) -> &mut ConnectionHandler<T> {
+        let r = &mut self.conn_writer.conn;
+        r.as_mut().expect("Unexpected test mode for SMTP connection handler")
     }
     
     async fn send(&mut self, s: String) -> Result<(), SmtpError> {

@@ -69,7 +69,7 @@ async fn main() -> io::Result<()> {
     };
     
     /**
-    Accepts on tls_listener in case it is Some() and returns its resulting (stream, sock).
+    Accepts via tls_listener in case it is Some() and returns its resulting (stream, sock).
     Returns None otherwise.
     */
     async fn conditional_tls_accept(tls_listener: Option<&TlsListener>) -> Option<(TcpStream, SocketAddr)> {

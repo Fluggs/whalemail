@@ -9,6 +9,7 @@ use log::{debug, info};
 use rsasl::property::{AuthId, AuthzId, Password};
 use tokio::io;
 use crate::auth::userdb::{UserDBMtx};
+use crate::net::IO;
 use crate::smtp::smtp::ConnectionWriter;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
@@ -96,7 +97,7 @@ impl Writer {
     If this Writer has a filled buffer, sends it via ConnectionWriter.
     If the buffer is not filled, does nothing and silently returns Ok(()).
     */
-    async fn flush_to_connwriter(&mut self, conn: &mut ConnectionWriter, mut prefix: String, suffix: &str) -> io::Result<()> {
+    async fn flush_to_connwriter<T: IO>(&mut self, conn: &mut ConnectionWriter<T>, mut prefix: String, suffix: &str) -> io::Result<()> {
         match self.write_buf.take() {
             Some(buf) => {
                 prefix.push_str(buf.as_str());
@@ -209,8 +210,8 @@ impl Auth {
         }
     }
     
-    pub(crate) async fn flush(&mut self, conn_writer: &mut ConnectionWriter, prefix: String, suffix: &str)
-            -> Result<(), io::Error>
+    pub(crate) async fn flush<T: IO>(&mut self, conn_writer: &mut ConnectionWriter<T>, prefix: String, suffix: &str)
+                              -> Result<(), io::Error>
     {
         self.writer.flush_to_connwriter(conn_writer, prefix, suffix).await
     }
