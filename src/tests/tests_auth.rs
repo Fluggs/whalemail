@@ -5,7 +5,7 @@ mod tests_auth {
     use tokio::net::TcpStream;
     use crate::smtp::smtp::Smtp;
     use crate::tests::test::expect_msg;
-    use crate::tests::test::test::{test_setup, EHLO_MSG};
+    use crate::tests::test::test::{ehlo_msg, test_setup};
     
     fn lf(s: &str) -> String {
         let mut r = s.to_string();
@@ -20,7 +20,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH CRAM-MD5")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
@@ -33,7 +33,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
@@ -46,7 +46,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH PLAIN")).await.unwrap();
         expect_msg!(s, "334 \r\n");
@@ -64,7 +64,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH PLAIN")).await.unwrap();
         expect_msg!(s, "334 \r\n");
@@ -82,7 +82,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org\r\n")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
@@ -103,7 +103,7 @@ mod tests_auth {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle(lf("EHLO test.org")).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");

@@ -54,13 +54,17 @@ impl SmtpTest {
 #[cfg(test)]
 pub mod test {
     use env_logger::Env;
+    use tokio::net::TcpStream;
     use crate::auth::userdb::UserDB;
+    use crate::config::Config;
     use crate::net::IO;
     use crate::smtp::smtp::Smtp;
     use crate::storage::Storage;
     use crate::tests::test::{SmtpTest};
-
-    pub(crate) static EHLO_MSG: &str = "250-AUTH PLAIN LOGIN\r\n";
+    
+    pub(crate) fn ehlo_msg(s: &Smtp<TcpStream>) -> String {
+        Smtp::<TcpStream>::ehlo_response(s.config_ref())
+    }
 
     #[cfg(test)]
     pub(crate) fn test_setup<T: IO>() -> Smtp<T> {
@@ -74,6 +78,7 @@ pub mod test {
                 last_msg: None,
                 received: false,
             },
+            Config::mock(),
             UserDB::new(),
             Storage { directory: "testdir".to_string() }
         )

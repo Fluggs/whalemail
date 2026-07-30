@@ -6,6 +6,7 @@ use regex::Regex;
 use crate::auth::auth;
 use crate::auth::auth::Authorized;
 use crate::auth::userdb::{UserDBMtx};
+use crate::config::Config;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{ErrorKind, SmtpError};
@@ -120,7 +121,8 @@ pub struct Smtp<T: IO> {
     pub(crate) authorized: Option<Authorized>,
     state_history: Vec<SmtpState>,
     pub(crate) mail: SmtpMail,
-    
+
+    config: Config,
     pub(crate) user_db: UserDBMtx,
     storage: Storage,
     
@@ -128,7 +130,7 @@ pub struct Smtp<T: IO> {
 }
 
 impl<T: IO> Smtp<T> {
-    pub fn new<'a>(connhandler: ConnectionHandler<T>, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
+    pub fn new(connhandler: ConnectionHandler<T>, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: Some(connhandler),
@@ -138,6 +140,7 @@ impl<T: IO> Smtp<T> {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            config,
             user_db,
             storage,
             auth: None,
@@ -145,7 +148,7 @@ impl<T: IO> Smtp<T> {
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
+    pub fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: None,
@@ -155,11 +158,17 @@ impl<T: IO> Smtp<T> {
             state: SmtpState::INIT,
             state_history: Vec::new(),
             mail: SmtpMail::new(),
+            config,
             user_db,
             storage,
             auth: None,
             authorized: None,
         }
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn config_ref(&self) -> &Config {
+        &self.config
     }
     
     pub(crate) fn connhandler_mut(&mut self) -> &mut ConnectionHandler<T> {
@@ -331,6 +340,19 @@ impl<T: IO> Smtp<T> {
             }
         }
     }
+    
+    fn build_ehlo_response(config: &Config) -> String {
+        format!(
+            "250-{}\r\n\
+            250 AUTH PLAIN LOGIN"
+            , config.hostname
+        ).to_string()
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn ehlo_response(config: &Config) -> String {
+        Self::build_ehlo_response(config)
+    }
 
     /**
     Handles an EHLO command.
@@ -339,7 +361,7 @@ impl<T: IO> Smtp<T> {
     async fn handle_ehlo(&mut self, cmd: Command) -> Result<(), SmtpError> {
         match self.state {
             SmtpState::INIT => {
-                self.send("250-AUTH PLAIN LOGIN\r\n".to_string()).await
+                self.send(Self::build_ehlo_response(&self.config)).await
             },
             _ => {
                 debug!("Bad sequence: Unexpected '{}' after '{}', expected to be in state INIT instead",

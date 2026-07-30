@@ -5,6 +5,7 @@ use std::str;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::auth::userdb::{UserDBMtx};
+use crate::config::Config;
 use crate::smtp::smtp::{Smtp, StateKind};
 use crate::smtp::smtp_error::SmtpError;
 use crate::storage::Storage;
@@ -29,8 +30,8 @@ impl<T: IO> ConnectionHandler<T> {
         self.socket.read(buf).await
     }
     
-    pub async fn process_socket(self, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
-        let mut smtp = Smtp::new(self, user_db, Storage { directory: storage_dir });
+    pub async fn process_socket(self, config: Config, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
+        let mut smtp = Smtp::new(self, config, user_db, Storage { directory: storage_dir });
         smtp.init_smtp()
             .await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;

@@ -3,7 +3,7 @@ mod tests_smtp {
     use tokio::net::TcpStream;
     use crate::smtp::smtp::{Smtp, StateKind};
     use crate::tests::test::expect_msg;
-    use crate::tests::test::test::{test_setup, EHLO_MSG};
+    use crate::tests::test::test::{ehlo_msg, test_setup};
 
     #[tokio::test]
     async fn test_init() {
@@ -70,7 +70,7 @@ mod tests_smtp {
         expect_msg!(s, "220 hi\r\n");
 
         s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
-        expect_msg!(s, EHLO_MSG);
+        expect_msg!(s, ehlo_msg(&s));
 
         s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");

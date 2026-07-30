@@ -29,6 +29,7 @@ use log;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
 use crate::auth::userdb::{UserDB, UserDBMtx};
+use crate::config::Config;
 use crate::net::IO;
 
 struct TlsListener {
@@ -38,7 +39,7 @@ struct TlsListener {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    let config = config::Config::load();
+    let config = Config::load();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();
     
     debug!(target: "blub", "yam!");
@@ -52,13 +53,18 @@ async fn main() -> io::Result<()> {
     // Build TlsListener if config values for certs are provided
     let tls_listener = match (&config.cert_dir, &config.trusted_ca_cert_dir) {
         (Some(_cert_dir), Some(_ca_dir)) => {
-            let acceptor = tls::build_tls_acceptor(config.cert_dir.unwrap(), config.trusted_ca_cert_dir.unwrap());
+            let acceptor = tls::build_tls_acceptor(
+                config.cert_dir.clone().unwrap(),
+                config.trusted_ca_cert_dir.clone().unwrap()
+            );
+            
             let listener = TcpListener::bind(config.bind_ip_tls.clone())
                 .await
                 .or_else(|err| {
                     println!("Binding to {} failed.", &config.bind_ip_tls);
                     Err(err)
                 })?;
+            
             Some(TlsListener {
                 acceptor,
                 tcp_listener: listener
@@ -95,7 +101,13 @@ async fn main() -> io::Result<()> {
         tokio::select! {
             plain = listener.accept() => {
                 match plain {
-                    Ok((socket, addr)) => process_socket_silent(socket, addr, user_db.clone(), config.maildir_root.clone()).await,
+                    Ok((socket, addr)) => process_socket_silent(
+                        socket,
+                        addr,
+                        config.clone(),
+                        user_db.clone(),
+                        config.maildir_root.clone()
+                    ).await,
                     Err(err) => eprintln!("Error processing plain socket: '{err}'")
                 }
             },
@@ -108,6 +120,7 @@ async fn main() -> io::Result<()> {
                     Ok(stream) => process_socket_silent(
                         stream,
                         addr,
+                        config.clone(),
                         user_db.clone(),
                         config.maildir_root.clone()
                     ).await,
@@ -118,10 +131,10 @@ async fn main() -> io::Result<()> {
     }
 }
 
-async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, user_db: UserDBMtx, storage_dir: String) {
+async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx, storage_dir: String) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
-    match handler.process_socket(user_db, storage_dir).await {
+    match handler.process_socket(config, user_db, storage_dir).await {
         Ok(()) => (),
         Err(err) => eprintln!("Socket came back with error: '{err}'")
     }
