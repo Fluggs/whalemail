@@ -80,7 +80,7 @@ async fn main() -> io::Result<()> {
                         Some((stream, addr))
                     },
                     Err(err) => {
-                        eprintln!("Error on incoming connection on TLS port: {err}");
+                        eprintln!("Error on incoming connection on TLS port: '{err}'");
                         None
                     }
                 }
@@ -96,7 +96,7 @@ async fn main() -> io::Result<()> {
             plain = listener.accept() => {
                 match plain {
                     Ok((socket, addr)) => process_socket_silent(socket, addr, user_db.clone(), config.maildir_root.clone()).await,
-                    Err(err) => println!("{err}")
+                    Err(err) => eprintln!("Error processing plain socket: '{err}'")
                 }
             },
             
@@ -104,8 +104,15 @@ async fn main() -> io::Result<()> {
                 let tls_listener = tls_listener.as_ref().expect("TLS not configured");
                 debug!("New connection on tls port from {}", addr);
                 let tls_acceptor = &tls_listener.acceptor.clone();
-                let tlsstream = tls_acceptor.accept(tcp_stream).await?;
-                process_socket_silent(tlsstream, addr, user_db.clone(), config.maildir_root.clone()).await
+                match tls_acceptor.accept(tcp_stream).await {
+                    Ok(stream) => process_socket_silent(
+                        stream,
+                        addr,
+                        user_db.clone(),
+                        config.maildir_root.clone()
+                    ).await,
+                    Err(err) => eprintln!("Error accepting TLS stream: '{}'", err)
+                }
             }
         }
     }

@@ -48,7 +48,7 @@ impl<T: IO> ConnectionHandler<T> {
                     break
                 },
                 n => {
-                    debug!("---- Reading {n} bytes");
+                    debug!("---- Reading {n} bytes: {}", String::from_utf8_lossy(&buf[..n]));
                     let v = match str::from_utf8(&buf[..n]) { // todo consider from_utf8_lossy
                         Ok(v) => v.to_string(),
                         Err(_) => {
