@@ -344,7 +344,7 @@ impl<T: IO> Smtp<T> {
     fn build_ehlo_response(config: &Config) -> String {
         format!(
             "250-{}\r\n\
-            250 AUTH PLAIN LOGIN"
+            250 AUTH PLAIN LOGIN\r\n"
             , config.hostname
         ).to_string()
     }
