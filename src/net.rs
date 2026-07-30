@@ -74,6 +74,7 @@ impl<T: IO> ConnectionHandler<T> {
     }
     
     pub async fn send(&mut self, msg: String) -> io::Result<()> {
+        debug!("-- Sending: {:?}", msg);
         match self.socket.write(msg.as_bytes()).await? {
             n if n < msg.len() => {
                 let err = format!("Tried to write {} bytes but only {} were written.", msg.len(), n);
