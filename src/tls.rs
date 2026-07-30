@@ -76,18 +76,19 @@ fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertE
 }
 
 fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
-    let path = file.into();
-    let reader = fs::read(&path)
-        .expect(format!("Error reading certs from file '{:?}'", &path).as_str());
-    let mut cursor = io::Cursor::new(reader);
-
-    let mut certs: Vec<CertificateDer> = Vec::new();
-    while let Ok(cert) = <CertificateDer as PemObject>::from_pem_reader(&mut cursor) {
-        certs.push(cert);
-    }
+    let file = file.into();
+    let certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(file.clone())
+        .unwrap()
+        .map(|res| res.expect(
+            format!("Error reading certificate chain from file {:?}", file.as_os_str()).as_str()
+        ))
+        .collect();
     
-    debug!("{} certificates read", certs.len());
-
+    debug!("Read TLS certificate chain from file '{}': {} certs in chain",
+        &file.to_str().expect(format!("Unable to parse file name {:?}", file.clone()).as_str()),
+        certs.len()
+    );
+    
     certs
 }
 
