@@ -27,4 +27,17 @@ impl Config {
             log_level: conf.get("log_level").or(Some("debug")).unwrap().to_string(),
         }
     }
+    
+    #[cfg(test)]
+    pub(crate) fn mock() -> Config {
+        Config {
+            hostname: "whalemail.tld".to_string(),
+            bind_ip: "0.0.0.0:25".to_string(),
+            bind_ip_tls: "0.0.0.0:465".to_string(),
+            maildir_root: "maildir".to_string(),
+            cert_dir: None,
+            trusted_ca_cert_dir: None,
+            log_level: "debug".to_string(),
+        }
+    }
 }
