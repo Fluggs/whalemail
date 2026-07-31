@@ -4,7 +4,7 @@ use strum_macros::IntoStaticStr;
 use log::{debug, info};
 use regex::Regex;
 use crate::auth::auth;
-use crate::auth::auth::Authorized;
+use crate::auth::auth::{Authorized, Error};
 use crate::auth::userdb::{UserDBMtx};
 use crate::config::Config;
 use crate::net::{ConnectionHandler, IO};
@@ -86,7 +86,7 @@ struct Patterns {
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
-    auth_cmd: Regex::new(r"AUTH (\w*)\s*$").unwrap(),
+    auth_cmd: Regex::new(r"AUTH (\w*)\s*([^$]+?)?\s*$").unwrap(),
 });
 
 pub struct ConnectionWriter<T: IO> {
@@ -100,7 +100,7 @@ impl<T: IO> ConnectionWriter<T> {
             Some(c) => c.send(s).await
                 .or_else(|error| Err(SmtpError::from_io(error))),
             None => {
-                debug!("Sending test message '{}'", s);
+                debug!("Sending test message '{:?}'", s);
                 let mut r = Ok(());
                 if cfg!(test) {
                     r = self.conn_testbed.as_mut().unwrap().send(s);
@@ -219,9 +219,7 @@ impl<T: IO> Smtp<T> {
             },
             // EHLO -> AUTH
             Some(SmtpState::AUTH) => {
-                self.handle_auth(cmd)
-                    .await
-                    .and(Ok(SmtpState::AUTH))
+                self.handle_auth(cmd).await
             }
             // HELO|EHLO -> MAIL
             Some(SmtpState::MAIL) => {
@@ -381,42 +379,55 @@ impl<T: IO> Smtp<T> {
     /**
     Handles an AUTH command. Starts the SASL auth process.
     */
-    async fn handle_auth(&mut self, cmd: Command) -> Result<(), SmtpError> {
+    async fn handle_auth(&mut self, cmd: Command) -> Result<SmtpState, SmtpError> {
+        // Catch incorrect state
         match self.state {
-            SmtpState::EHLO => {
-                let cap = match RE.auth_cmd.captures(cmd.message.as_str()) {
-                    Some(v) => match v.get(1) {
-                        Some(p) => Some(String::from(p.as_str())),
-                        None => None
-                    },
-                    None => None
-                };
-                
-                match cap {
-                    Some(arg) => {
-                        debug!("Parsed AUTH arg: '{}'", arg);
-                        self.auth = match auth::Auth::new(self.user_db.clone(), arg) {
-                            Ok(auth) => {
-                                Some(auth)
-                            },
-                            Err(_) => {
-                                return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
-                            }
-                        };
-                        self.auth_flush().await?;
-                    },
-                    None => {
-                        return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
-                    }
-                }
-                Ok(())
+            SmtpState::EHLO => {},
+            _ => return Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
+        };
+
+        // Parse AUTH <mech> [mech_arg]
+        let (mech, mech_arg) = match RE.auth_cmd.captures(cmd.message.as_str()) {
+            Some(v) => (v.get(1), v.get(2)),
+            None => (None, None)
+        };
+        
+        let mech = match mech {
+            Some(re_match) => String::from(re_match.as_str()),
+            None => return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
+        };
+        
+        let mech_arg = mech_arg
+            .and_then(|re_match| Some(String::from(re_match.as_str())));
+        
+        self.auth = match auth::Auth::new(self.user_db.clone(), mech, mech_arg) {
+            Ok(auth) => Some(auth),
+            Err(Error::NoMechanism) => return Err(SmtpError::bad_parameter(&cmd, self.state.clone())),
+            Err(Error::AuthUnsuccessful) => return Err(SmtpError::bad_credentials(&cmd, self.state.clone()))
+        };
+        self.auth_flush().await?;
+
+        debug!("authorized: '{:?}'", self.auth.as_ref().unwrap().authorized());
+
+        match self.auth.as_ref().unwrap().authorized() {
+            Ok(Some(authorized)) => {
+                self.finalize_authorization(authorized).await
             },
-            _ => {
-                Err(SmtpError::bad_sequence(&cmd, self.state.clone()))
+            Ok(None) => {
+                Err(SmtpError::bad_credentials(&cmd, self.state.clone()))
+            },
+
+            // SASL not finished yet, keep going
+            Err(_) => {
+                Ok(SmtpState::AUTH)
             }
         }
     }
-    
+
+    /**
+    Handles AUTH (SASL) steps once this protocol is in AUTH state.
+    Returns to EHLO state once the SASL process is done (with or without successful auth).
+    */
     async fn handle_auth_step(&mut self, cmd: &Command) -> Result<SmtpState, SmtpError> {
         match self.auth.as_mut().unwrap().step(Some(cmd.msg_strip_lf()?.as_ref())) {
             Ok(None) => {
@@ -424,15 +435,23 @@ impl<T: IO> Smtp<T> {
                 Ok(SmtpState::AUTH)
             },
             Ok(Some(authorized)) => {
-                self.authorized = Some(authorized);
-                self.send("235 2.7.0 Authentication successful\r\n".to_string())
-                    .await
-                    .and(Ok(SmtpState::EHLO))
+                self.finalize_authorization(authorized).await
             },
             Err(_) => {
                 Err(SmtpError::bad_credentials(cmd, self.state.clone()))
             }
         }
+    }
+
+    /**
+    Sends success message and handles Smtp state for an authorization success.
+    */
+    async fn finalize_authorization(&mut self, authorized: Authorized) -> Result<SmtpState, SmtpError> {
+        debug!("Finalizing auth");
+        self.authorized = Some(authorized);
+        self.send("235 2.7.0 Authentication successful\r\n".to_string())
+            .await
+            .and(Ok(SmtpState::EHLO))
     }
 
     /**

@@ -1,4 +1,7 @@
 use std::io::Write;
+use std::sync;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use rsasl::callback::{Context, SessionCallback, SessionData};
 use rsasl::prelude::*;
 use rsasl::validate::{Validate, Validation, ValidationError};
@@ -6,6 +9,7 @@ use rsasl::config::SASLConfig;
 use rsasl::mechanisms::*;
 use rsasl::registry::{Mechanism, Registry};
 use log::{debug, info};
+use regex::Regex;
 use rsasl::property::{AuthId, AuthzId, Password};
 use tokio::io;
 use crate::auth::userdb::{UserDBMtx};
@@ -14,11 +18,24 @@ use crate::smtp::smtp::ConnectionWriter;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
 
+// Regex Patterns
+struct Patterns {
+    plain_auth_msg: Regex,
+}
+
+static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
+    plain_auth_msg: Regex::new(r"[^\x00]+\x00[^\x00]+\x00[^\x00]+$").unwrap(),
+});
+
 #[derive(Debug)]
 pub enum Error {
     AuthUnsuccessful,
     NoMechanism,
 }
+
+/// Returned by `authorized()` if the SASL protocol has not finished yet.
+#[derive(Debug)]
+pub struct NotFinishedError {}
 
 pub enum AuthMech {
     PLAIN,
@@ -41,6 +58,8 @@ impl AuthMech {
 /**
 Represents an authenticated and authorized user/identity.
 */
+#[derive(Clone)]
+#[derive(Debug)]
 pub struct Authorized {
     pub(crate) identity: String,
     username: String,
@@ -100,12 +119,13 @@ impl Writer {
     async fn flush_to_connwriter<T: IO>(&mut self, conn: &mut ConnectionWriter<T>, mut prefix: String, suffix: &str) -> io::Result<()> {
         match self.write_buf.take() {
             Some(buf) => {
+                debug!("Flushing buffer '{}'", buf);
                 prefix.push_str(buf.as_str());
+                prefix.push_str(suffix);
+                conn.send(prefix).await.or_else(|e| Err(e.io_error.expect("Expected io error")))
             }
-            None => { }
-        };
-        prefix.push_str(suffix);
-        conn.send(prefix).await.or_else(|e| Err(e.io_error.expect("Expected io error")))
+            None => { Ok(()) }
+        }
     }
 }
 
@@ -130,13 +150,32 @@ impl Write for Writer {
 }
 
 pub struct Auth {
+    /// SASL session this struct is wrapped around
     session: Session<AuthValidation>,
+    
+    /// Output writer for messages to be sent by SASL implementation
     writer: Writer,
+    
+    /// SASL mechanism
     mechname: AuthMech,
+    
+    /// Whether this SASL session has finished.
+    is_finished: bool,
+    
+    /// Result of this SASL session. None if session unfinished or on unsuccessful auth.
+    authorized: Option<Authorized>,
 }
 
 impl Auth {
-    pub(crate) fn new(user_db: UserDBMtx, selected: String) -> Result<Auth, Error> {
+    /**
+    Constructs an SASL session for mechanism `selected`.
+    Performs the first protocol `step` if an `initial_step` message is supplied (such as PLAIN credentials).
+    Validates the incoming credentials against `user_db`.
+
+    If `initial_step` leads to an immediate authorization, `authorized()` will return the result.
+    */
+    pub(crate) fn new(user_db: UserDBMtx, selected: String, initial_step: Option<String>) -> Result<Auth, Error> {
+        debug!("Building Auth with mechanism '{selected}' and mech argument '{:?}'", initial_step);
         let mechname = Mechname::parse(selected.as_ref()).unwrap();
         let callback = Callback{ user_db: user_db.clone() };
         let sasl = SASLConfig::builder()
@@ -149,14 +188,26 @@ impl Auth {
             Err(_) => return Err(Error::NoMechanism)
         };
         
+        debug!("Are we first: '{}'", session.are_we_first());
+        
         let mut r = Auth {
             session,
             writer: Writer { write_buf: None },
             mechname: AuthMech::from(mechname)?,
+            is_finished: false,
+            authorized: None,
         };
         
         match &r.mechname {
-            AuthMech::PLAIN => {}
+            AuthMech::PLAIN => {
+                match initial_step {
+                    Some(arg) => {
+                        let credentials = Self::try_base64_plain_credentials(arg);
+                        r.step(Some(credentials.as_ref()))?;
+                    },
+                    None => {}
+                }
+            }
             AuthMech::LOGIN => {
                 debug!("Doing initial step for mech LOGIN");
                 r.session.step64(None, &mut r.writer).expect("Expected state");
@@ -182,9 +233,12 @@ impl Auth {
         };
         
         match r {
-            Ok(State::Finished(MessageSent::No)) => {},
+            Ok(State::Finished(MessageSent::No)) => {
+                self.is_finished = true;
+            },
             Ok(State::Finished(MessageSent::Yes)) => {
                 debug!("TODO! Sent SASL message");
+                self.is_finished = true;
                 return Err(Error::AuthUnsuccessful)
             },
             Ok(State::Running) => {
@@ -199,7 +253,10 @@ impl Auth {
         match self.session.validation() {
             Some(val) => {
                 match val {
-                    Ok(authorized) => Ok(Some(authorized)),
+                    Ok(authorized) => {
+                        self.authorized = Some(authorized);
+                        Ok(self.authorized.clone())
+                    },
                     Err(e) => {
                         debug!("Validation error: {:?}", e);
                         Err(Error::AuthUnsuccessful)
@@ -209,11 +266,45 @@ impl Auth {
             None => Err(Error::AuthUnsuccessful)
         }
     }
-    
+
+    /**
+    Flushes the SASL write buffer to `conn_writer`; prefixes it with `prefix` and suffixes it with `suffix`.
+    */
     pub(crate) async fn flush<T: IO>(&mut self, conn_writer: &mut ConnectionWriter<T>, prefix: String, suffix: &str)
                               -> Result<(), io::Error>
     {
-        self.writer.flush_to_connwriter(conn_writer, prefix, suffix).await
+        debug!("flushing");
+        let r = self.writer.flush_to_connwriter(conn_writer, prefix, suffix).await;
+
+        debug!("flushing done");
+        r
+    }
+
+    /**
+    Returns:
+      * Ok(Some(Authorized)) on successful auth
+      * Err(NotFinishedError) if the protocol has not finished yet
+      * Ok(None) if the auth process finished without auth success
+    */
+    pub(crate) fn authorized(&self) -> Result<Option<Authorized>, NotFinishedError> {
+        if !self.is_finished {
+            return Err(NotFinishedError{})
+        }
+        Ok(self.authorized.clone())
+    }
+    
+    /**
+    If PLAIN input `s` does not contain 2 x00 bytes, decodes PLAIN input `s` via base64 if possible.
+    Always returns either `s` or base64-decoded `s`.
+    */
+    fn try_base64_plain_credentials(s: String) -> String {
+        match RE.plain_auth_msg.is_match(&s) {
+            true => s,
+            false => match BASE64_STANDARD.decode(&s) {
+                Ok(decoded) => String::from_utf8(decoded).unwrap_or(s),
+                Err(_) => s,
+            }
+        }
     }
 }
 

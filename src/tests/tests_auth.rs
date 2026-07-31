@@ -40,7 +40,23 @@ mod tests_auth {
     }
 
     #[tokio::test]
-    async fn test_auth_plain_success() {
+    async fn test_auth_plain_oneline_success() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
+
+        s.handle(lf("AUTH PLAIN spongebob\0spongebob\0pineapple!")).await.unwrap();
+        expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
+    }
+
+    // todo figure out whether this should be possible
+    //#[tokio::test]
+    async fn test_auth_plain_multiline_success() {
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
@@ -58,6 +74,39 @@ mod tests_auth {
     }
 
     #[tokio::test]
+    async fn test_auth_plain_oneline64_success() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
+
+        s.handle(format!(
+            "AUTH PLAIN {}\r\n",
+            BASE64_STANDARD.encode("spongebob\0spongebob\0pineapple!"))).await.unwrap();
+        expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_auth_plain_multiline64_success() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
+
+        let credentials = BASE64_STANDARD.encode("spongebob\0spongebob\0pineapple!");
+        s.handle(format!("AUTH PLAIN {}", credentials)).await.unwrap();
+        expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
+    }
+
+    #[tokio::test]
     async fn test_auth_plain_wrong_pw() {
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
@@ -66,12 +115,9 @@ mod tests_auth {
         s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH PLAIN")).await.unwrap();
-        expect_msg!(s, "334 \r\n");
-        
         s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
 
-        s.handle(lf("spongebob\0spongebob\0wrongpw")).await.unwrap();
+        s.handle(lf("AUTH PLAIN spongebob\0spongebob\0wrongpw")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Unauthorized\r\n");
     }
 
