@@ -107,6 +107,21 @@ mod tests_auth {
     }
 
     #[tokio::test]
+    async fn test_auth_plain_no_identity() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.user_db.lock().unwrap().mock("spongebob".to_string(), "pineapple!".to_string());
+
+        s.handle(lf("AUTH PLAIN \0spongebob\0pineapple!")).await.unwrap();
+        expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
+    }
+
+    #[tokio::test]
     async fn test_auth_plain_wrong_pw() {
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();

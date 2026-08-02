@@ -81,6 +81,7 @@ impl Authorized {
         };
         
         let identity = match identity {
+            Some(identity) if identity.trim() == "" => username.clone(),
             Some(identity) => match identity.eq(&username) {
                 true => identity.to_string(),
                 false => {
