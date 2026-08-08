@@ -1,5 +1,15 @@
 use ini::Ini;
 
+#[derive(Debug)]
+pub(crate) enum ConfigError {
+    MissingConfig(String),
+}
+
+#[derive(Clone)]
+pub(crate) struct MaildirConfig {
+    pub(crate) user_maildir_path: String,
+}
+
 #[derive(Clone)]
 pub(crate) struct Config {
     pub(crate) hostname: String,
@@ -9,15 +19,16 @@ pub(crate) struct Config {
     pub(crate) cert_dir: Option<String>,
     pub(crate) trusted_ca_cert_dir: Option<String>,
     pub(crate) log_level: String,
+    pub(crate) maildir_config: MaildirConfig,
 }
 
 static CONFIG_FILE: &str = "conf.ini";
 
 impl Config {
-    pub(crate) fn load() -> Config {
+    pub(crate) fn load() -> Result<Config, ConfigError> {
         let mut conf = Ini::load_from_file(CONFIG_FILE).expect(format!("Loading {} failed", CONFIG_FILE).as_str());
         let conf = conf.with_section::<String>(None);
-        Config {
+        Ok(Config {
             hostname: conf.get("hostname").or(Some("whalemail.tld")).unwrap().to_string(),
             bind_ip: conf.get("bind_ip").or(Some("127.0.0.1:25")).unwrap().to_string(),
             bind_ip_tls: conf.get("bind_ip_tls").or(Some("127.0.0.1:465")).unwrap().to_string(),
@@ -25,7 +36,12 @@ impl Config {
             cert_dir: conf.get("cert_dir").and_then(|s| Some(s.to_string())),
             trusted_ca_cert_dir: Some(conf.get("trusted_ca_cert_dir").or(Some("/etc/ssl/certs")).unwrap().to_string()),
             log_level: conf.get("log_level").or(Some("debug")).unwrap().to_string(),
-        }
+            maildir_config: MaildirConfig {
+                user_maildir_path: conf.get("user_maildir_path")
+                    .ok_or(ConfigError::MissingConfig("user_maildir_path".to_string()))?
+                    .to_string()
+            }
+        })
     }
     
     #[cfg(test)]
@@ -38,6 +54,7 @@ impl Config {
             cert_dir: None,
             trusted_ca_cert_dir: None,
             log_level: "debug".to_string(),
+            maildir_config: MaildirConfig { user_maildir_path: String::new() }
         }
     }
 }

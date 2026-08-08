@@ -59,7 +59,7 @@ pub mod test {
     use crate::config::Config;
     use crate::net::IO;
     use crate::smtp::smtp::Smtp;
-    use crate::storage::Storage;
+    use crate::maildir::Storage;
     use crate::tests::test::{SmtpTest};
     
     pub(crate) fn ehlo_msg(s: &Smtp<TcpStream>) -> String {
@@ -80,7 +80,7 @@ pub mod test {
             },
             Config::mock(),
             UserDB::new(),
-            Storage { root_dir: "testdir".to_string() }
+            Storage::mock()
         )
     }
 

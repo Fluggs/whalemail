@@ -10,7 +10,7 @@ mod auth {
 }
 
 mod net;
-mod storage;
+mod maildir;
 mod config;
 mod tls;
 mod user;
@@ -40,7 +40,12 @@ struct TlsListener {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    let config = Config::load();
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(err) => {
+            panic!("Error loading config: {:?}", err)
+        }
+    };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();
     
     debug!(target: "blub", "yam!");
@@ -135,7 +140,7 @@ async fn main() -> io::Result<()> {
 async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx, storage_dir: String) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
-    match handler.process_socket(config, user_db, storage_dir).await {
+    match handler.process_socket(config, user_db).await {
         Ok(()) => (),
         Err(err) => eprintln!("Socket came back with error: '{err}'")
     }

@@ -10,7 +10,7 @@ use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp::smtp_mail::SmtpMail;
-use crate::storage::Storage;
+use crate::maildir::Storage;
 use crate::user::User;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
@@ -368,7 +368,7 @@ impl<T: IO> Smtp<T> {
             }
         }
     }
-    
+
     /**
     Flushes the write buffer of `self.auth` in case SASL wants to write something.
     */
@@ -542,7 +542,11 @@ impl<T: IO> Smtp<T> {
                 match mail_end {
                     true => {
                         self.mail.finish();
-                        self.storage.store(&self.mail).await.unwrap(); //todo error handling
+                        for mailbox in self.user_db.lock().unwrap()
+                                .get_mailboxes_for_recipients(&self.mail.recipients)
+                        {
+                            self.storage.store(&self.mail, mailbox).await.unwrap();
+                        }
                         self.send("250 OK\r\n".to_string()).await?;
                         Ok(SmtpState::DATAINPUT)
                     },

@@ -33,5 +33,10 @@ impl UserDB {
         
         false
     }
+    
+    pub(crate) fn get_mailboxes_for_recipients(&self, rcpts: &Vec<String>) -> Vec<String> {
+        // todo match against user db
+        rcpts.clone()
+    }
 
 }

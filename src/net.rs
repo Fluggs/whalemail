@@ -8,7 +8,7 @@ use crate::auth::userdb::{UserDBMtx};
 use crate::config::Config;
 use crate::smtp::smtp::{Smtp, StateKind};
 use crate::smtp::smtp_error::SmtpError;
-use crate::storage::Storage;
+use crate::maildir::Storage;
 
 pub(crate) trait IO: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin> IO for T {}
@@ -30,8 +30,10 @@ impl<T: IO> ConnectionHandler<T> {
         self.socket.read(buf).await
     }
     
-    pub async fn process_socket(self, config: Config, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
-        let mut smtp = Smtp::new(self, config, user_db, Storage { root_dir: storage_dir });
+    pub async fn process_socket(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
+        let maildir_config = (&config.maildir_config).clone();
+        let hostname = config.hostname.clone();
+        let mut smtp = Smtp::new(self, config, user_db, Storage::new(hostname, maildir_config));
         smtp.init_smtp()
             .await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;

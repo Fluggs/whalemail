@@ -64,7 +64,7 @@ Represents an authenticated and authorized user/identity.
 #[derive(Debug)]
 pub struct Authorized {
     pub(crate) identity: String,
-    username: String,
+    pub(crate) username: String,
 }
 
 impl Authorized {
@@ -108,12 +108,6 @@ impl Authorized {
             },
            password
         ))
-    }
-}
-
-impl Into<User> for Authorized {
-    fn into(self) -> User {
-        User::new(self.identity, self.username)
     }
 }
 
