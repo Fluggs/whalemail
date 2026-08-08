@@ -13,6 +13,7 @@ mod net;
 mod storage;
 mod config;
 mod tls;
+mod user;
 
 mod tests {
     pub(crate) mod test;

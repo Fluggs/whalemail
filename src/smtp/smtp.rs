@@ -3,15 +3,15 @@ use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug, info};
 use regex::Regex;
-use crate::auth::auth;
-use crate::auth::auth::{Authorized, Error};
-use crate::auth::userdb::{UserDBMtx};
 use crate::config::Config;
+use crate::auth::auth;
+use crate::auth::userdb::{UserDBMtx};
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{ErrorKind, SmtpError};
 use crate::smtp::smtp_mail::SmtpMail;
 use crate::storage::Storage;
+use crate::user::User;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum SmtpState {
@@ -118,7 +118,7 @@ pub struct Smtp<T: IO> {
     pub(crate) closed: bool,
     
     pub(crate) state: SmtpState,
-    pub(crate) authorized: Option<Authorized>,
+    pub(crate) user: Option<User>,
     state_history: Vec<SmtpState>,
     pub(crate) mail: SmtpMail,
 
@@ -144,7 +144,7 @@ impl<T: IO> Smtp<T> {
             user_db,
             storage,
             auth: None,
-            authorized: None,
+            user: None,
         }
     }
     #[cfg(test)]
@@ -162,7 +162,7 @@ impl<T: IO> Smtp<T> {
             user_db,
             storage,
             auth: None,
-            authorized: None,
+            user: None,
         }
     }
     
@@ -369,6 +369,9 @@ impl<T: IO> Smtp<T> {
         }
     }
     
+    /**
+    Flushes the write buffer of `self.auth` in case SASL wants to write something.
+    */
     async fn auth_flush(&mut self) -> Result<(), SmtpError> {
         self.auth.as_mut().expect("missing auth object")
             .flush(&mut self.conn_writer, "334 ".to_string(), "\r\n")
@@ -402,8 +405,8 @@ impl<T: IO> Smtp<T> {
         
         self.auth = match auth::Auth::new(self.user_db.clone(), mech, mech_arg) {
             Ok(auth) => Some(auth),
-            Err(Error::NoMechanism) => return Err(SmtpError::bad_parameter(&cmd, self.state.clone())),
-            Err(Error::AuthUnsuccessful) => return Err(SmtpError::bad_credentials(&cmd, self.state.clone()))
+            Err(auth::Error::NoMechanism) => return Err(SmtpError::bad_parameter(&cmd, self.state.clone())),
+            Err(auth::Error::AuthUnsuccessful) => return Err(SmtpError::bad_credentials(&cmd, self.state.clone()))
         };
         self.auth_flush().await?;
 
@@ -434,8 +437,8 @@ impl<T: IO> Smtp<T> {
                 self.auth_flush().await?;
                 Ok(SmtpState::AUTH)
             },
-            Ok(Some(authorized)) => {
-                self.finalize_authorization(authorized).await
+            Ok(Some(user)) => {
+                self.finalize_authorization(user).await
             },
             Err(_) => {
                 Err(SmtpError::bad_credentials(cmd, self.state.clone()))
@@ -446,9 +449,9 @@ impl<T: IO> Smtp<T> {
     /**
     Sends success message and handles Smtp state for an authorization success.
     */
-    async fn finalize_authorization(&mut self, authorized: Authorized) -> Result<SmtpState, SmtpError> {
+    async fn finalize_authorization(&mut self, user: User) -> Result<SmtpState, SmtpError> {
         debug!("Finalizing auth");
-        self.authorized = Some(authorized);
+        self.user = Some(user);
         self.send("235 2.7.0 Authentication successful\r\n".to_string())
             .await
             .and(Ok(SmtpState::EHLO))

@@ -80,7 +80,7 @@ pub mod test {
             },
             Config::mock(),
             UserDB::new(),
-            Storage { directory: "testdir".to_string() }
+            Storage { root_dir: "testdir".to_string() }
         )
     }
 

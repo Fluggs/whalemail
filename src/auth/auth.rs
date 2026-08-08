@@ -8,13 +8,14 @@ use rsasl::validate::{Validate, Validation, ValidationError};
 use rsasl::config::SASLConfig;
 use rsasl::mechanisms::*;
 use rsasl::registry::{Mechanism, Registry};
+use rsasl::property::{AuthId, AuthzId, Password};
 use log::{debug, info};
 use regex::Regex;
-use rsasl::property::{AuthId, AuthzId, Password};
 use tokio::io;
 use crate::auth::userdb::{UserDBMtx};
 use crate::net::IO;
 use crate::smtp::smtp::ConnectionWriter;
+use crate::user::User;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
 
@@ -24,6 +25,7 @@ struct Patterns {
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
+    // matches identity\0username\0password format
     plain_auth_msg: Regex::new(r"[^\x00]+\x00[^\x00]+\x00[^\x00]+$").unwrap(),
 });
 
@@ -66,6 +68,13 @@ pub struct Authorized {
 }
 
 impl Authorized {
+    /**
+    Builds an authorization input tuple (user, password) from optional input.
+    Validates that at least a username is supplied and copies identity from it if necessary.
+    
+    Returns `Error::AuthUnsuccessful` when mandatory input (username, password) is missing or when
+    identity and username are different.
+    */
     fn new(identity: Option<&str>, username: Option<&str>, password: Option<&[u8]>) -> Result<(Authorized, String), Error> {
         let (username, password): (String, String) = match (username, password) {
             (None, _) | (_, None) => {
@@ -102,7 +111,13 @@ impl Authorized {
     }
 }
 
-pub struct AuthValidation;
+impl Into<User> for Authorized {
+    fn into(self) -> User {
+        User::new(self.identity, self.username)
+    }
+}
+
+struct AuthValidation;
 
 impl Validation for AuthValidation {
     type Value = Result<Authorized, Error>;
@@ -131,7 +146,7 @@ impl Writer {
 }
 
 impl Write for Writer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let buf = String::from_utf8_lossy(buf);
         let r = buf.len();
         debug!("SASL writing to client: '{}'", buf);
@@ -222,11 +237,11 @@ impl Auth {
     Performs a step in the auth protocol.
     
     Returns:
-      * Ok(Some(Authorized)) on successful auth
+      * Ok(Some(User)) on successful auth
       * Ok(None) if the protocol has not finished yet
       * Err(Error.AuthUnsuccessful) if the auth process finished without auth success
     */
-    pub(crate) fn step(&mut self, input: Option<&[u8]>) -> Result<Option<Authorized>, Error>{
+    pub(crate) fn step(&mut self, input: Option<&[u8]>) -> Result<Option<User>, Error>{
         debug!("auth stepping {:?}", String::from_utf8_lossy(input.unwrap_or("<None>".as_bytes())));
         let r = match self.mechname {
             AuthMech::PLAIN => self.session.step(input, &mut self.writer),
@@ -255,8 +270,9 @@ impl Auth {
             Some(val) => {
                 match val {
                     Ok(authorized) => {
+                        let r = authorized.clone().into();
                         self.authorized = Some(authorized);
-                        Ok(self.authorized.clone())
+                        Ok(Some(r))
                     },
                     Err(e) => {
                         debug!("Validation error: {:?}", e);
@@ -270,6 +286,7 @@ impl Auth {
 
     /**
     Flushes the SASL write buffer to `conn_writer`; prefixes it with `prefix` and suffixes it with `suffix`.
+    The write buffer is filled by SASL in case it wants to write something back.
     */
     pub(crate) async fn flush<T: IO>(&mut self, conn_writer: &mut ConnectionWriter<T>, prefix: String, suffix: &str)
                               -> Result<(), io::Error>
@@ -287,11 +304,11 @@ impl Auth {
       * Err(NotFinishedError) if the protocol has not finished yet
       * Ok(None) if the auth process finished without auth success
     */
-    pub(crate) fn authorized(&self) -> Result<Option<Authorized>, NotFinishedError> {
+    pub(crate) fn authorized(&self) -> Result<Option<User>, NotFinishedError> {
         if !self.is_finished {
             return Err(NotFinishedError{})
         }
-        Ok(self.authorized.clone())
+        Ok(self.authorized.clone().map(|a| a.into()))
     }
     
     /**

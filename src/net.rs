@@ -31,7 +31,7 @@ impl<T: IO> ConnectionHandler<T> {
     }
     
     pub async fn process_socket(self, config: Config, user_db: UserDBMtx, storage_dir: String,) -> io::Result<()> {
-        let mut smtp = Smtp::new(self, config, user_db, Storage { directory: storage_dir });
+        let mut smtp = Smtp::new(self, config, user_db, Storage { root_dir: storage_dir });
         smtp.init_smtp()
             .await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;

@@ -5,13 +5,13 @@ use crate::smtp::smtp_mail::SmtpMail;
 use log::{debug};
 
 pub(crate) struct Storage {
-    pub(crate) directory: String,
+    pub(crate) root_dir: String,
 }
 
 impl Storage {
     pub(crate) async fn store(&self, mail: &SmtpMail) -> Result<(), io::Error> {
         let mut file = PathBuf::new();
-        file.push(self.directory.clone());
+        file.push(self.root_dir.clone());
         debug!("Writing mail {} to {}", mail.uuid, file.display());
 
         fs::create_dir_all(&file).await?;
