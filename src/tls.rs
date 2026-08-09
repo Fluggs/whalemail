@@ -78,7 +78,7 @@ fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertE
 fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
     let file = file.into();
     let certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(file.clone())
-        .unwrap()
+        .expect(format!("Unable to read TLS certificate from {:?}", &file).as_str())
         .map(|res| res.expect(
             format!("Error reading certificate chain from file {:?}", file.as_os_str()).as_str()
         ))
