@@ -112,7 +112,6 @@ async fn main() -> io::Result<()> {
                         addr,
                         config.clone(),
                         user_db.clone(),
-                        config.maildir_root.clone()
                     ).await,
                     Err(err) => eprintln!("Error processing plain socket: '{err}'")
                 }
@@ -128,7 +127,6 @@ async fn main() -> io::Result<()> {
                         addr,
                         config.clone(),
                         user_db.clone(),
-                        config.maildir_root.clone()
                     ).await,
                     Err(err) => eprintln!("Error accepting TLS stream: '{}'", err)
                 }
@@ -137,7 +135,7 @@ async fn main() -> io::Result<()> {
     }
 }
 
-async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx, storage_dir: String) {
+async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
     match handler.process_socket(config, user_db).await {
