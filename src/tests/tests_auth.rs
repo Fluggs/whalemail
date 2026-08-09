@@ -158,6 +158,32 @@ mod tests_auth {
     }
 
     #[tokio::test]
+    async fn test_auth_lowercase_mech() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.handle(lf("AUTH login")).await.unwrap();
+        expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_auth_invalid_mech_arg() {
+        let mut s: Smtp<TcpStream> = test_setup();
+        s.init_smtp().await.unwrap();
+        expect_msg!(s, "220 hi\r\n");
+
+        s.handle(lf("EHLO test.org")).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.handle(lf("AUTH MECH&!ARG")).await.unwrap();
+        expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
+    }
+
+    #[tokio::test]
     async fn test_auth_login_invalid_input() {
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();

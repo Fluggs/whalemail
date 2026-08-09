@@ -86,7 +86,7 @@ struct Patterns {
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
-    auth_cmd: Regex::new(r"AUTH (\w*)\s*([^$]+?)?\s*$").unwrap(),
+    auth_cmd: Regex::new(r"AUTH ([0-9A-Za-z_-]*)\s*([^$]+?)?\s*$").unwrap(),
 });
 
 pub struct ConnectionWriter<T: IO> {
@@ -396,8 +396,9 @@ impl<T: IO> Smtp<T> {
         };
         
         let mech = match mech {
-            Some(re_match) => String::from(re_match.as_str()),
-            None => return Err(SmtpError::bad_parameter(&cmd, self.state.clone()))
+            Some(re_match) => String::from(re_match.as_str())
+                .to_ascii_uppercase(),
+            None => return Err(SmtpError::bad_auth_mech(&cmd, self.state.clone()))
         };
         
         let mech_arg = mech_arg
@@ -405,7 +406,7 @@ impl<T: IO> Smtp<T> {
         
         self.auth = match auth::Auth::new(self.user_db.clone(), mech, mech_arg) {
             Ok(auth) => Some(auth),
-            Err(auth::Error::NoMechanism) => return Err(SmtpError::bad_parameter(&cmd, self.state.clone())),
+            Err(auth::Error::InvalidMechanism) => return Err(SmtpError::bad_auth_mech(&cmd, self.state.clone())),
             Err(auth::Error::AuthUnsuccessful) => return Err(SmtpError::bad_credentials(&cmd, self.state.clone()))
         };
         self.auth_flush().await?;

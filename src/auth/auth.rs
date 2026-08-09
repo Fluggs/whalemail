@@ -32,7 +32,7 @@ static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
 #[derive(Debug)]
 pub enum Error {
     AuthUnsuccessful,
-    NoMechanism,
+    InvalidMechanism,
 }
 
 /// Returned by `authorized()` if the SASL protocol has not finished yet.
@@ -52,7 +52,7 @@ impl AuthMech {
         } else if mechname.eq("LOGIN") {
             Ok(AuthMech::LOGIN)
         } else {
-            Err(Error::NoMechanism)
+            Err(Error::InvalidMechanism)
         }
     }
 }
@@ -186,8 +186,9 @@ impl Auth {
     */
     pub(crate) fn new(user_db: UserDBMtx, selected: String, initial_step: Option<String>) -> Result<Auth, Error> {
         debug!("Building Auth with mechanism '{selected}' and mech argument '{:?}'", initial_step);
-        let mechname = Mechname::parse(selected.as_ref()).unwrap();
-        let callback = Callback{ user_db: user_db.clone() };
+        let mechname = Mechname::parse(selected.as_ref())
+            .or(Err(Error::InvalidMechanism))?;
+        let callback = Callback { user_db: user_db.clone() };
         let sasl = SASLConfig::builder()
             .with_registry(Registry::with_mechanisms(MECHANISMS))
             .with_callback(callback)
@@ -195,7 +196,7 @@ impl Auth {
         let session = match SASLServer::<AuthValidation>
                 ::new(sasl).start_suggested(mechname) {
             Ok(session) => session,
-            Err(_) => return Err(Error::NoMechanism)
+            Err(_) => return Err(Error::InvalidMechanism)
         };
         
         debug!("Are we first: '{}'", session.are_we_first());

@@ -62,7 +62,7 @@ impl SmtpError {
         }
     }
 
-    pub(crate) fn bad_parameter(cmd: &Command, state: SmtpState) -> SmtpError {
+    pub(crate) fn bad_auth_mech(cmd: &Command, state: SmtpState) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADAUTHMECH,
             state: Some(state),
