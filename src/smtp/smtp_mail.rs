@@ -9,8 +9,8 @@ pub(crate) struct InvalidMailAddress {}
 #[derive(PartialEq)]
 pub(crate) struct MailAddress {
     pub(crate) address: String,
-    local_part: String,
-    domain: String,
+    pub(crate) local_part: String,
+    pub(crate) domain: String,
 }
 
 impl MailAddress {

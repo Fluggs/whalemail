@@ -21,7 +21,6 @@ pub(crate) struct UserDB {
 
 struct Postgres {
     client: Client,
-    connection: Connection<Socket, NoTlsStream>
 }
 
 pub(crate) type UserDBMtx = Arc<Mutex<UserDB>>;
@@ -46,9 +45,16 @@ impl UserDB {
             mock_password: None,
             postgres: Some(Postgres {
                 client,
-                connection,
             })
         };
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                error!("Postgres connection error: '{}'", e);
+            }
+        });
+        
+        
         Ok(Arc::new(Mutex::new(r)))
     }
 
@@ -82,7 +88,7 @@ impl UserDB {
     */
     pub(crate) async fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<String, Error> {
         let rows = self.client()
-            .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;", &[&"hello world"])
+            .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;", &[&rcpt.local_part, &rcpt.domain])
             .await.or(Err(Error::DBError))?;
         // todo match against user db
         debug!("{:?}", rows);
