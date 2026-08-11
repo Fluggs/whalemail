@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use log::debug;
+use log::{debug, error};
 use crate::auth::auth::Authorized;
 use tokio_postgres::{NoTls, Client, Connection, Socket};
 use tokio_postgres::tls::NoTlsStream;
@@ -28,12 +28,18 @@ pub(crate) type UserDBMtx = Arc<Mutex<UserDB>>;
 
 impl UserDB {
     pub(crate) async fn new(config: UserDBConfig) -> Result<UserDBMtx, Error> {
-        let (client, connection) =
+        let (client, connection) = match
             tokio_postgres::connect(format!("host=localhost user={} password={}",
                                             config.postgres_username,
                                             config.postgres_password).as_str(),
                                     NoTls)
-                .await.or(Err(Error::DBError))?;
+                .await {
+            Ok(r) => Ok(r),
+            Err(err) => {
+                error!("Error connecting to user database: '{}'", err);
+                Err(Error::DBError)
+            }
+        }?;
         let r = UserDB {
             mock_username: None,
             mock_password: None,
