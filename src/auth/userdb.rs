@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use log::{debug, error};
 use crate::auth::auth::Authorized;
@@ -53,8 +54,8 @@ impl UserDB {
                 error!("Postgres connection error: '{}'", e);
             }
         });
-        
-        
+
+
         Ok(Arc::new(Mutex::new(r)))
     }
 
@@ -86,7 +87,7 @@ impl UserDB {
     /**
     Takes a recipient and retrieves its mailbox name from the user db
     */
-    pub(crate) async fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<String, Error> {
+    pub(crate) async fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error> {
         let rows = self.client()
             .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;", &[&rcpt.local_part, &rcpt.domain])
             .await.or(Err(Error::DBError))?;
@@ -105,11 +106,11 @@ impl UserDB {
                 return Err(Error::DBError);
             }
         };
+
+        let r: PathBuf = PathBuf::from(row.get::<&str, String>("mailbox_home"));
+        debug!("found mailbox home for recipient: '{:?}' for '{}'", r, rcpt.address);
         
-        let r: String = row.get("mailbox_home");
-        debug!("suspecting mailbox: '{}'", r);
-        
-        Ok("mock_mailbox".to_string())
+        Ok(r)
     }
 
 }

@@ -33,14 +33,13 @@ impl Storage {
     /**
     Stores a mail in a mailbox identified by its name. Actual mailbox path is determined by config.
     */
-    pub(crate) async fn store(&self, mail: &Envelope, mailbox_name: String) -> Result<(), io::Error> {
-        let mut file = self.mailbox_path(mailbox_name);
-        file.push("new");
-        debug!("Writing mail {} to {}", mail.uuid, file.display());
+    pub(crate) async fn store(&self, mail: &Envelope, mut mailbox_home: PathBuf) -> Result<(), io::Error> {
+        mailbox_home.push("new");
+        debug!("Writing mail '{}' to '{}'", mail.uuid, mailbox_home.display());
 
-        fs::create_dir_all(&file).await?;
-        file.push(mail.uuid.to_string());
-        fs::write(file, &mail.body).await?;
+        fs::create_dir_all(&mailbox_home).await?;
+        mailbox_home.push(mail.uuid.to_string());
+        fs::write(mailbox_home, &mail.body).await?;
         Ok(())
     }
     

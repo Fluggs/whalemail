@@ -1,4 +1,5 @@
 use std::{fmt, io, sync};
+use std::path::PathBuf;
 use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug, info};
@@ -540,7 +541,7 @@ impl<T: IO> Smtp<T> {
     to all recipients.
     */
     async fn deliver_mail(&self) -> Result<(), DeliveryError> {
-        let mut mailboxes: Vec<String> = Vec::new();
+        let mut mailboxes: Vec<PathBuf> = Vec::new();
         for rcpt in &self.mail.recipients {
             let mb = match self.user_db.lock().unwrap().get_mailbox_for_recipient(rcpt).await {
                 Ok(mb) => mb,
@@ -553,7 +554,7 @@ impl<T: IO> Smtp<T> {
             match self.storage.store(&self.mail, mb.clone()).await {
                 Ok(()) => {},
                 Err(err) => {
-                    debug!("Error storing mail for '{}': '{}'", mb, err);
+                    debug!("Error storing mail for '{:?}': '{}'", mb, err);
                     return Err(DeliveryError::MailboxIO(format!("{}", err)));
                 }
             }
