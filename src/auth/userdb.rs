@@ -36,7 +36,7 @@ impl UserDB {
                 .await {
             Ok(r) => Ok(r),
             Err(err) => {
-                error!("Error connecting to user database: '{}'", err);
+                error!("Error connecting to user database: '{:?}', '{:?}', '{:?}'", err, err.code(), err.as_db_error());
                 Err(Error::DBError)
             }
         }?;
