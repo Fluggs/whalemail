@@ -29,7 +29,8 @@ pub(crate) type UserDBMtx = Arc<Mutex<UserDB>>;
 impl UserDB {
     pub(crate) async fn new(config: UserDBConfig) -> Result<UserDBMtx, Error> {
         let (client, connection) = match
-            tokio_postgres::connect(format!("host=localhost user={} password={}",
+            tokio_postgres::connect(format!("host=localhost/{} user={} password={}",
+                                            config.postgres_database,
                                             config.postgres_username,
                                             config.postgres_password).as_str(),
                                     NoTls)

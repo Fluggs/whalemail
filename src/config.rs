@@ -12,6 +12,7 @@ pub(crate) struct MaildirConfig {
 
 #[derive(Clone)]
 pub(crate) struct UserDBConfig {
+    pub(crate) postgres_database: String,
     pub(crate) postgres_username: String,
     pub(crate) postgres_password: String,
 }
@@ -47,6 +48,9 @@ impl Config {
                     .to_string()
             },
             userdb_config: UserDBConfig {
+                postgres_database: conf.get("postgres_database")
+                    .ok_or(ConfigError::MissingConfig("postgres_username".to_string()))?
+                    .to_string(),
                 postgres_username: conf.get("postgres_username")
                     .ok_or(ConfigError::MissingConfig("postgres_username".to_string()))?
                     .to_string(),
@@ -68,6 +72,7 @@ impl Config {
             log_level: "debug".to_string(),
             maildir_config: MaildirConfig { user_maildir_path: String::new() },
             userdb_config: UserDBConfig {
+                postgres_database: String::new(),
                 postgres_username: String::new(),
                 postgres_password: String::new(),
             }
