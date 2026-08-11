@@ -8,8 +8,8 @@ use crate::auth::auth;
 use crate::auth::userdb::{UserDBMtx};
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
-use crate::smtp::smtp_error::{ErrorKind, SmtpError};
-use crate::smtp::smtp_mail::SmtpMail;
+use crate::smtp::smtp_error::{DeliveryError, ErrorKind, SmtpError};
+use crate::smtp::smtp_mail::{Envelope, MailAddress};
 use crate::maildir::Storage;
 use crate::user::User;
 
@@ -120,7 +120,7 @@ pub struct Smtp<T: IO> {
     pub(crate) state: SmtpState,
     pub(crate) user: Option<User>,
     state_history: Vec<SmtpState>,
-    pub(crate) mail: SmtpMail,
+    pub(crate) mail: Envelope,
 
     config: Config,
     pub(crate) user_db: UserDBMtx,
@@ -139,7 +139,7 @@ impl<T: IO> Smtp<T> {
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
-            mail: SmtpMail::new(),
+            mail: Envelope::new(),
             config,
             user_db,
             storage,
@@ -157,7 +157,7 @@ impl<T: IO> Smtp<T> {
             closed: false,
             state: SmtpState::INIT,
             state_history: Vec::new(),
-            mail: SmtpMail::new(),
+            mail: Envelope::new(),
             config,
             user_db,
             storage,
@@ -223,12 +223,12 @@ impl<T: IO> Smtp<T> {
             }
             // HELO|EHLO -> MAIL
             Some(SmtpState::MAIL) => {
-                self.receive_mail_cmd(cmd).await
+                self.receive_mail_cmd(&cmd).await
                     .and(Ok(SmtpState::MAIL))
             },
             // MAIL|RCPT -> RCPT
             Some(SmtpState::RCPT) => {
-                self.receive_rcpt(cmd).await
+                self.receive_rcpt(&cmd).await
                     .and(Ok(SmtpState::RCPT))
             },
             // RCPT -> DATA
@@ -309,12 +309,17 @@ impl<T: IO> Smtp<T> {
                 self.send("535 5.7.8 Invalid authentication mechanism\r\n".to_string()).await
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
-            }
+            },
             ErrorKind::BADCREDENTIALS => {
                 self.send("535 5.7.8 Unauthorized\r\n".to_string()).await
                     .and(Ok(error))
                     .or_else(|err| Err(err.io_error.unwrap()))
-            }
+            },
+            ErrorKind::DELIVERYERROR(_) | ErrorKind::INVALIDMAILBOX => {
+                self.send("550 Requested action not taken: mailbox unavailable\r\n".to_string()).await
+                    .and(Ok(error))
+                    .or_else(|err| Err(err.io_error.unwrap()))
+            },
             ErrorKind::IOERROR => Err(error.io_error.unwrap()),
         }
     }
@@ -465,7 +470,7 @@ impl<T: IO> Smtp<T> {
     Verifies protocol state machine.
     Returns an SmtpError if protocol is violated or on IO error.
     */
-    async fn receive_mail_cmd(&mut self, cmd: Command) -> Result<(), SmtpError> {
+    async fn receive_mail_cmd(&mut self, cmd: &Command) -> Result<(), SmtpError> {
         debug!("Handling MAIL: {}", cmd);
         match self.state {
             SmtpState::HELO | SmtpState::EHLO => {
@@ -491,13 +496,16 @@ impl<T: IO> Smtp<T> {
     Verifies protocol state machine.
     Returns an SmtpError if protocol is violated or on IO error.
     */
-    async fn receive_rcpt(&mut self, cmd: Command) -> Result<(), SmtpError> {
+    async fn receive_rcpt(&mut self, cmd: &Command) -> Result<(), SmtpError> {
         debug!("Handling RCPT: {cmd}");
         match self.state {
             SmtpState::RCPT | SmtpState::MAIL => {
                 let recipient = self.parse_address_message_by_re(
                     Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap(), cmd
                 )?;
+                let recipient = MailAddress::new(recipient.as_str())
+                    .map_err(|_| SmtpError::invalid_mailbox(cmd, self.state.clone()))?;
+                
                 self.mail.recipients.push(recipient);
                 self.send("250 OK\r\n".to_string()).await?;
                 Ok(())
@@ -512,7 +520,7 @@ impl<T: IO> Smtp<T> {
     Parses an address from an RCPT or MAIL command.
     Returns the contained address or `SmtpError::BADCOMMAND` on error.
     */
-    fn parse_address_message_by_re(&mut self, re: Regex, cmd: Command) -> Result<String, SmtpError> {
+    fn parse_address_message_by_re(&mut self, re: Regex, cmd: &Command) -> Result<String, SmtpError> {
         let parse = match re.captures(&cmd.message) {
             Some(capture) => match capture.get(1) {
                 Some(rcpt) => Some(rcpt.as_str().to_string()),
@@ -526,10 +534,37 @@ impl<T: IO> Smtp<T> {
             None => Err(SmtpError::bad_command(&cmd).push_state(self.state.clone()))
         }
     }
+
+    /**
+    Attempts to deliver a mail to its recipients. Returns true only if the mail could be delivered
+    to all recipients.
+    */
+    async fn deliver_mail(&self) -> Result<(), DeliveryError> {
+        let mut mailboxes: Vec<String> = Vec::new();
+        for rcpt in &self.mail.recipients {
+            let mb = match self.user_db.lock().unwrap().get_mailbox_for_recipient(rcpt).await {
+                Ok(mb) => mb,
+                Err(_) => return Err(DeliveryError::NoSuchUser(rcpt.address.clone()))
+            };
+            mailboxes.push(mb);
+        }
+        
+        for mb in mailboxes {
+            match self.storage.store(&self.mail, mb.clone()).await {
+                Ok(()) => {},
+                Err(err) => {
+                    debug!("Error storing mail for '{}': '{}'", mb, err);
+                    return Err(DeliveryError::MailboxIO(format!("{}", err)));
+                }
+            }
+        }
+        
+        Ok(())
+    }
     
     /**
     Handles incoming mail data input.
-    Stores the message that was sent and sends a 250 response.
+    Delivers the mail that was received and sends a 250 response.
 
     Verifies protocol state machine.
     Returns an SmtpError if protocol is violated or on IO error.
@@ -543,13 +578,13 @@ impl<T: IO> Smtp<T> {
                 match mail_end {
                     true => {
                         self.mail.finish();
-                        for mailbox in self.user_db.lock().unwrap()
-                                .get_mailboxes_for_recipients(&self.mail.recipients)
-                        {
-                            self.storage.store(&self.mail, mailbox).await.unwrap();
+                        match self.deliver_mail().await {
+                            Ok(()) => {
+                                self.send("250 OK\r\n".to_string()).await?;
+                                Ok(SmtpState::DATAINPUT)
+                            },
+                            Err(err) => Err(err.into())
                         }
-                        self.send("250 OK\r\n".to_string()).await?;
-                        Ok(SmtpState::DATAINPUT)
                     },
                     false => Ok(SmtpState::DATA)
                 }

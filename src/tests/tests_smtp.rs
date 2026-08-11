@@ -2,6 +2,7 @@
 mod tests_smtp {
     use tokio::net::TcpStream;
     use crate::smtp::smtp::{Smtp, StateKind};
+    use crate::smtp::smtp_mail::MailAddress;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
 
@@ -29,7 +30,7 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_helo_mail() {
         let sender = "sender@test.org";
-        let rcpt = "rcv@whalemail.net";
+        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
@@ -41,7 +42,7 @@ mod tests_smtp {
         s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("RCPT TO:<".to_string() + rcpt + ">\r\n").await.unwrap();
+        s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
         s.handle("DATA\r\n".to_string()).await.unwrap();
@@ -56,14 +57,14 @@ mod tests_smtp {
 
         // Verify mail
         assert_eq!(s.mail.sender, Some(sender.to_string()));
-        assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
+        assert_eq!(s.mail.recipients, Vec::from([rcpt]));
         assert!(s.mail.is_finished());
     }
 
     #[tokio::test]
     async fn test_ehlo_mail() {
         let sender = "sender@test.org";
-        let rcpt = "rcv@whalemail.net";
+        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
@@ -75,7 +76,7 @@ mod tests_smtp {
         s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("RCPT TO:<".to_string() + rcpt + ">\r\n").await.unwrap();
+        s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
         s.handle("DATA\r\n".to_string()).await.unwrap();
@@ -90,7 +91,7 @@ mod tests_smtp {
 
         // Verify mail
         assert_eq!(s.mail.sender, Some(sender.to_string()));
-        assert_eq!(s.mail.recipients, Vec::from([rcpt.to_string()]));
+        assert_eq!(s.mail.recipients, Vec::from([rcpt]));
         assert!(s.mail.is_finished());
     }
 
@@ -131,8 +132,8 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_helo_multiple_rcpt() {
-        let rcpt1 = "rcv1@whalemail.net";
-        let rcpt2 = "rcv2@whalemail.net";
+        let rcpt1 = MailAddress::new("rcv@2whalemail.net").unwrap();
+        let rcpt2 = MailAddress::new("rcv@2whalemail.net").unwrap();
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
         expect_msg!(s, "220 hi\r\n");
@@ -143,13 +144,13 @@ mod tests_smtp {
         s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("RCPT TO:<".to_string() + rcpt1 + ">\r\n").await.unwrap();
+        s.handle(format!("RCPT TO:<{}>\r\n", rcpt1.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("RCPT TO:<".to_string() + rcpt2 + ">\r\n").await.unwrap();
+        s.handle(format!("RCPT TO:<{}>\r\n", rcpt2.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        assert_eq!(s.mail.recipients, Vec::from([rcpt1.to_string(), rcpt2.to_string()]));
+        assert_eq!(s.mail.recipients, Vec::from([rcpt1, rcpt2]));
     }
 
     #[tokio::test]

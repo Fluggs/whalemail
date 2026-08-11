@@ -79,7 +79,7 @@ pub mod test {
                 received: false,
             },
             Config::mock(),
-            UserDB::new(),
+            UserDB::new_mock(),
             Storage::mock()
         )
     }

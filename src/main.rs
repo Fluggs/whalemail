@@ -49,7 +49,10 @@ async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();
     
     debug!(target: "blub", "yam!");
-    let user_db = UserDB::new();
+    let user_db = match UserDB::new(config.userdb_config.clone()).await {
+        Ok(r) => r,
+        Err(err) => panic!("Error building user db: {:?}", err)
+    };
 
     let listener = TcpListener::bind(config.bind_ip.clone()).await.or_else(|err| {
         println!("Binding to {} failed.", &config.bind_ip);

@@ -2,7 +2,7 @@ use tokio::fs;
 use std::{io};
 use std::path::{PathBuf};
 use std::time::{Instant, SystemTime};
-use crate::smtp::smtp_mail::SmtpMail;
+use crate::smtp::smtp_mail::Envelope;
 use log::{debug};
 use crate::config::MaildirConfig;
 
@@ -31,10 +31,10 @@ impl Storage {
     }
     
     /**
-    Stores a mail in the recipient's mailbox.
+    Stores a mail in a mailbox identified by its name. Actual mailbox path is determined by config.
     */
-    pub(crate) async fn store(&self, mail: &SmtpMail, recipient: String) -> Result<(), io::Error> {
-        let mut file = self.rcpt_mailbox(recipient);
+    pub(crate) async fn store(&self, mail: &Envelope, mailbox_name: String) -> Result<(), io::Error> {
+        let mut file = self.mailbox_path(mailbox_name);
         file.push("new");
         debug!("Writing mail {} to {}", mail.uuid, file.display());
 
@@ -57,7 +57,7 @@ impl Storage {
         format!("{}.{}.M{}", unixtime, self.hostname, millis).to_string()
     }
     
-    fn rcpt_mailbox(&self, rcpt: String) -> PathBuf {
+    fn mailbox_path(&self, rcpt: String) -> PathBuf {
         let r = self.user_maildir_path.replace("%user%", rcpt.as_str());
         PathBuf::from(r)
     }

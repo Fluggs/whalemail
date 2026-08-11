@@ -11,6 +11,12 @@ pub(crate) struct MaildirConfig {
 }
 
 #[derive(Clone)]
+pub(crate) struct UserDBConfig {
+    pub(crate) postgres_username: String,
+    pub(crate) postgres_password: String,
+}
+
+#[derive(Clone)]
 pub(crate) struct Config {
     pub(crate) hostname: String,
     pub(crate) bind_ip: String,
@@ -19,6 +25,7 @@ pub(crate) struct Config {
     pub(crate) trusted_ca_cert_dir: Option<String>,
     pub(crate) log_level: String,
     pub(crate) maildir_config: MaildirConfig,
+    pub(crate) userdb_config: UserDBConfig,
 }
 
 static CONFIG_FILE: &str = "conf.ini";
@@ -38,6 +45,14 @@ impl Config {
                 user_maildir_path: conf.get("user_maildir_path")
                     .ok_or(ConfigError::MissingConfig("user_maildir_path".to_string()))?
                     .to_string()
+            },
+            userdb_config: UserDBConfig {
+                postgres_username: conf.get("postgres_username")
+                    .ok_or(ConfigError::MissingConfig("postgres_username".to_string()))?
+                    .to_string(),
+                postgres_password: conf.get("postgres_password")
+                    .ok_or(ConfigError::MissingConfig("postgres_password".to_string()))?
+                    .to_string()
             }
         })
     }
@@ -51,7 +66,11 @@ impl Config {
             cert_dir: None,
             trusted_ca_cert_dir: None,
             log_level: "debug".to_string(),
-            maildir_config: MaildirConfig { user_maildir_path: String::new() }
+            maildir_config: MaildirConfig { user_maildir_path: String::new() },
+            userdb_config: UserDBConfig {
+                postgres_username: String::new(),
+                postgres_password: String::new(),
+            }
         }
     }
 }

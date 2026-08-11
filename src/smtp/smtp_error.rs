@@ -2,6 +2,12 @@ use std::fmt;
 use std::io::Error;
 use crate::smtp::smtp::{SmtpState, Command};
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum DeliveryError {
+    NoSuchUser(String),
+    MailboxIO(String)
+}
+
 #[derive(Debug, Clone)]
 #[derive(PartialEq)]
 pub(crate) enum ErrorKind {
@@ -9,6 +15,8 @@ pub(crate) enum ErrorKind {
     BADSEQUENCE,
     BADAUTHMECH,
     BADCREDENTIALS,
+    DELIVERYERROR(DeliveryError),
+    INVALIDMAILBOX,
     IOERROR,
 }
 
@@ -33,6 +41,17 @@ impl fmt::Display for SmtpError {
             None => "(unknown)".to_string()
         };
         write!(f, "SMTP State {}: Unexpected message: {}", state, self.cmd)
+    }
+}
+
+impl From<DeliveryError> for SmtpError {
+    fn from(err: DeliveryError) -> Self {
+        SmtpError {
+            kind: ErrorKind::DELIVERYERROR(err),
+            state: None,
+            cmd: String::new(),
+            io_error: None,
+        }
     }
 }
 
@@ -74,6 +93,15 @@ impl SmtpError {
     pub(crate) fn bad_credentials(cmd: &Command, state: SmtpState) -> SmtpError {
         SmtpError {
             kind: ErrorKind::BADCREDENTIALS,
+            state: Some(state),
+            cmd: format!("{}", cmd.message),
+            io_error: None,
+        }
+    }
+    
+    pub(crate) fn invalid_mailbox(cmd: &Command, state: SmtpState) -> SmtpError {
+        SmtpError {
+            kind: ErrorKind::INVALIDMAILBOX,
             state: Some(state),
             cmd: format!("{}", cmd.message),
             io_error: None,

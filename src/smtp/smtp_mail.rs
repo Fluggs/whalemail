@@ -1,17 +1,49 @@
+use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 use log::{debug};
 
-pub(crate) struct SmtpMail {
+#[derive(Debug)]
+pub(crate) struct InvalidMailAddress {}
+
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub(crate) struct MailAddress {
+    pub(crate) address: String,
+    local_part: String,
+    domain: String,
+}
+
+impl MailAddress {
+    pub(crate) fn new(s: &str) -> Result<Self, InvalidMailAddress> {
+        let split: Vec<&str> = s.split("@").collect();
+        match split.len() {
+            2 => Ok(MailAddress {
+                    address: s.to_string(),
+                    local_part: split[0].to_string(),
+                    domain: split[1].to_string()
+                }),
+            _ => Err(InvalidMailAddress { })
+        }
+    }
+}
+
+impl Display for MailAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.address)
+    }
+}
+
+pub(crate) struct Envelope {
     pub(crate) sender: Option<String>,
-    pub(crate) recipients: Vec<String>,
+    pub(crate) recipients: Vec<MailAddress>,
     pub(crate) body: String,
     pub(crate) uuid: Uuid,
     finished: bool,
 }
 
-impl SmtpMail {
-    pub(crate) fn new() -> SmtpMail {
-        let r = SmtpMail {
+impl Envelope {
+    pub(crate) fn new() -> Envelope {
+        let r = Envelope {
             sender: None,
             recipients: Vec::new(),
             body: "".to_string(),
