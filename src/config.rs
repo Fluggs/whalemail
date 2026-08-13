@@ -1,8 +1,19 @@
+use std::fmt::{Display, Formatter};
 use ini::Ini;
 
 #[derive(Debug)]
 pub(crate) enum ConfigError {
     MissingConfig(String),
+}
+
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingConfig(s) => {
+                Ok(write!(f, "missing config option: '{}'", s)?)
+            }
+        }
+    }
 }
 
 #[derive(Clone)]

@@ -38,7 +38,7 @@ impl Storage {
         debug!("Writing mail '{}' to '{}'", mail.uuid, mailbox_home.display());
 
         fs::create_dir_all(&mailbox_home).await?;
-        mailbox_home.push(mail.uuid.to_string());
+        mailbox_home.push(self.maildir_file_name());
         fs::write(mailbox_home, &mail.body).await?;
         Ok(())
     }
@@ -54,10 +54,5 @@ impl Storage {
             .as_secs();
         let millis = Instant::now().duration_since(self.base_instant).as_millis();
         format!("{}.{}.M{}", unixtime, self.hostname, millis).to_string()
-    }
-    
-    fn mailbox_path(&self, rcpt: String) -> PathBuf {
-        let r = self.user_maildir_path.replace("%user%", rcpt.as_str());
-        PathBuf::from(r)
     }
 }

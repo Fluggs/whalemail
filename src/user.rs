@@ -1,9 +1,5 @@
 use crate::auth::auth::Authorized;
 
-pub(crate) enum Error {
-    InvalidIdentity,
-}
-
 /**
 Represents a user with its mail address, username and mailbox name.
 */
@@ -15,23 +11,16 @@ pub struct User {
 }
 
 impl User {
-    pub(crate) fn new(identity: String, username: String) -> Result<Self, Error> {
-        Ok(Self {
+    pub(crate) fn new(identity: String, username: String) -> Self {
+        Self {
             identity,
             username
-        })
-    }
-    
-    pub(crate) fn mailbox_name(&self) -> String {
-        self.identity.clone()
+        }
     }
 }
 
 impl From<Authorized> for User {
     fn from(authorized: Authorized) -> Self {
-        Self {
-            identity: authorized.identity,
-            username: authorized.username,
-        }
+        Self::new(authorized.identity, authorized.username)
     }
 }

@@ -43,7 +43,7 @@ async fn main() -> io::Result<()> {
     let config = match Config::load() {
         Ok(config) => config,
         Err(err) => {
-            panic!("Error loading config: {:?}", err)
+            panic!("Error loading config: {}", err)
         }
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();

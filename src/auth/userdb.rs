@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use log::{debug, error};
 use crate::auth::auth::Authorized;
-use tokio_postgres::{NoTls, Client, Connection, Socket};
-use tokio_postgres::tls::NoTlsStream;
+use tokio_postgres::{NoTls, Client};
 use crate::config::UserDBConfig;
 use crate::smtp::smtp_mail::MailAddress;
 
@@ -91,24 +90,23 @@ impl UserDB {
         let rows = self.client()
             .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;", &[&rcpt.local_part, &rcpt.domain])
             .await.or(Err(Error::DBError))?;
-        // todo match against user db
-        debug!("{:?}", rows);
+        
         let row = match rows.len() {
             0 => {
-                debug!("No mailbox found for user {}", rcpt);
+                debug!("No mailbox found for user '{}'", rcpt);
                 return Err(Error::DBError);
             },
             1 => {
                 rows.get(0).unwrap()
             },
             p => {
-                debug!("Expected one or no mailboxes, retrieved {} from db", p);
+                error!("Expected at most one mailbox, retrieved {} from DB for address '{}'", p, rcpt.address);
                 return Err(Error::DBError);
             }
         };
 
         let r: PathBuf = PathBuf::from(row.get::<&str, String>("mailbox_home"));
-        debug!("found mailbox home for recipient: '{:?}' for '{}'", r, rcpt.address);
+        debug!("Found mailbox home for recipient: '{:?}' for '{}'", r, rcpt.address);
         
         Ok(r)
     }
