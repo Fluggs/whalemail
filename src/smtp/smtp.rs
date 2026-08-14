@@ -6,7 +6,8 @@ use log::{debug, info};
 use regex::Regex;
 use crate::config::Config;
 use crate::auth::auth;
-use crate::userdb::userdb::{UserDBMtx};
+use crate::userdb::userdb::{UserDBMtx, UserDB};
+use crate::userdb::drivers::postgres::Postgres;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{DeliveryError, ErrorKind, SmtpError};
@@ -124,14 +125,14 @@ pub struct Smtp<T: IO> {
     pub(crate) mail: Envelope,
 
     config: Config,
-    pub(crate) user_db: UserDBMtx,
+    pub(crate) user_db: UserDBMtx<Postgres>,
     storage: Storage,
     
     auth: Option<auth::Auth>,
 }
 
 impl<T: IO> Smtp<T> {
-    pub fn new(connhandler: ConnectionHandler<T>, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
+    pub fn new(connhandler: ConnectionHandler<T>, config: Config, user_db: UserDBMtx<Postgres>, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: Some(connhandler),
@@ -149,7 +150,7 @@ impl<T: IO> Smtp<T> {
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
+    pub fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx<Postgres>, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: None,

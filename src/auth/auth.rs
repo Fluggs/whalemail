@@ -12,10 +12,11 @@ use rsasl::property::{AuthId, AuthzId, Password};
 use log::{debug, info};
 use regex::Regex;
 use tokio::io;
-use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::userdb::{UserDBMtx, UserDB};
 use crate::net::IO;
 use crate::smtp::smtp::ConnectionWriter;
 use crate::user::User;
+use crate::userdb::drivers::postgres::Postgres;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
 
@@ -184,7 +185,7 @@ impl Auth {
 
     If `initial_step` leads to an immediate authorization, `authorized()` will return the result.
     */
-    pub(crate) fn new(user_db: UserDBMtx, selected: String, initial_step: Option<String>) -> Result<Auth, Error> {
+    pub(crate) fn new(user_db: UserDBMtx<Postgres>, selected: String, initial_step: Option<String>) -> Result<Auth, Error> {
         debug!("Building Auth with mechanism '{selected}' and mech argument '{:?}'", initial_step);
         let mechname = Mechname::parse(selected.as_ref())
             .or(Err(Error::InvalidMechanism))?;
@@ -322,7 +323,7 @@ impl Auth {
 }
 
 struct Callback {
-    user_db: UserDBMtx
+    user_db: UserDBMtx<Postgres>
 }
 
 impl SessionCallback for Callback {

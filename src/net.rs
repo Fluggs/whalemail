@@ -4,7 +4,8 @@ use std::net::SocketAddr;
 use std::str;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use crate::userdb::userdb::{UserDBMtx};
+use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::drivers::postgres::Postgres;
 use crate::config::Config;
 use crate::smtp::smtp::{Smtp, StateKind};
 use crate::smtp::smtp_error::SmtpError;
@@ -30,7 +31,7 @@ impl<T: IO> ConnectionHandler<T> {
         self.socket.read(buf).await
     }
     
-    pub async fn process_socket(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
+    pub async fn process_socket(self, config: Config, user_db: UserDBMtx<Postgres>) -> io::Result<()> {
         let maildir_config = (&config.maildir_config).clone();
         let hostname = config.hostname.clone();
         let mut smtp = Smtp::new(self, config, user_db, Storage::new(hostname, maildir_config));

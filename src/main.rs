@@ -9,6 +9,9 @@ mod auth {
 }
 
 mod userdb {
+    pub(crate) mod drivers {
+        pub(crate) mod postgres;
+    }
     pub(crate) mod userdb;
 }
 
@@ -32,9 +35,10 @@ use env_logger;
 use log;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
-use crate::userdb::userdb::{UserDB, UserDBMtx};
+use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
 use crate::net::IO;
+use crate::userdb::drivers::postgres::Postgres;
 
 struct TlsListener {
     acceptor: TlsAcceptor,
@@ -52,7 +56,7 @@ async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();
     
     debug!(target: "blub", "yam!");
-    let user_db = match UserDB::new(config.userdb_config.clone()).await {
+    let user_db = match Postgres::new(config.userdb_config.clone()).await {
         Ok(r) => r,
         Err(err) => panic!("Error building user db: {:?}", err)
     };
@@ -141,7 +145,7 @@ async fn main() -> io::Result<()> {
     }
 }
 
-async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx) {
+async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx<Postgres>) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
     match handler.process_socket(config, user_db).await {

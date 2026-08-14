@@ -6,7 +6,8 @@ mod tests_auth {
     use crate::smtp::smtp::Smtp;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
-    
+    use crate::userdb::userdb::UserDB;
+
     fn lf(s: &str) -> String {
         let mut r = s.to_string();
         r.push_str("\r\n");

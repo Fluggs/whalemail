@@ -55,7 +55,7 @@ impl SmtpTest {
 pub mod test {
     use env_logger::Env;
     use tokio::net::TcpStream;
-    use crate::userdb::userdb::UserDB;
+    use crate::userdb::drivers::postgres::Postgres;
     use crate::config::Config;
     use crate::net::IO;
     use crate::smtp::smtp::Smtp;
@@ -79,7 +79,7 @@ pub mod test {
                 received: false,
             },
             Config::mock(),
-            UserDB::new_mock(),
+            Postgres::new_mock(),
             Storage::mock()
         )
     }
