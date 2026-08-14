@@ -55,13 +55,13 @@ impl SmtpTest {
 pub mod test {
     use env_logger::Env;
     use tokio::net::TcpStream;
-    use crate::auth::userdb::UserDB;
+    use crate::userdb::userdb::UserDB;
     use crate::config::Config;
     use crate::net::IO;
     use crate::smtp::smtp::Smtp;
     use crate::maildir::Storage;
     use crate::tests::test::{SmtpTest};
-    
+
     pub(crate) fn ehlo_msg(s: &Smtp<TcpStream>) -> String {
         Smtp::<TcpStream>::ehlo_response(s.config_ref())
     }

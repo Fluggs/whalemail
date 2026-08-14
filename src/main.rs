@@ -6,6 +6,9 @@ mod smtp {
 
 mod auth {
     pub(crate) mod auth;
+}
+
+mod userdb {
     pub(crate) mod userdb;
 }
 
@@ -29,7 +32,7 @@ use env_logger;
 use log;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
-use crate::auth::userdb::{UserDB, UserDBMtx};
+use crate::userdb::userdb::{UserDB, UserDBMtx};
 use crate::config::Config;
 use crate::net::IO;
 

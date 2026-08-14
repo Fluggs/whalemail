@@ -12,7 +12,7 @@ use rsasl::property::{AuthId, AuthzId, Password};
 use log::{debug, info};
 use regex::Regex;
 use tokio::io;
-use crate::auth::userdb::{UserDBMtx};
+use crate::userdb::userdb::UserDBMtx;
 use crate::net::IO;
 use crate::smtp::smtp::ConnectionWriter;
 use crate::user::User;

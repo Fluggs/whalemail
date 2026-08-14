@@ -6,7 +6,7 @@ use log::{debug, info};
 use regex::Regex;
 use crate::config::Config;
 use crate::auth::auth;
-use crate::auth::userdb::{UserDBMtx};
+use crate::userdb::userdb::{UserDBMtx};
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{DeliveryError, ErrorKind, SmtpError};
