@@ -52,11 +52,11 @@ impl UserDB for Postgres {
     */
     fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error> {
         let runtime = tokio::runtime::Handle::current();
-        let rows = runtime.block_on(
-            self.client
+        let rows = tokio::task::block_in_place(move ||
+            runtime.block_on(self.client
             .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;",
                    &[&rcpt.local_part, &rcpt.domain])
-        )
+        ))
             .or(Err(Error::DBError))?;
 
         let row = match rows.len() {
