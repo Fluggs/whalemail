@@ -6,8 +6,7 @@ use log::{debug, info};
 use regex::Regex;
 use crate::config::Config;
 use crate::auth::auth;
-use crate::userdb::userdb::{UserDBMtx, UserDB};
-use crate::userdb::drivers::postgres::Postgres;
+use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::{DeliveryError, ErrorKind, SmtpError};
@@ -125,14 +124,14 @@ pub struct Smtp<T: IO> {
     pub(crate) mail: Envelope,
 
     config: Config,
-    pub(crate) user_db: UserDBMtx<Postgres>,
+    pub(crate) user_db: UserDBMtx,
     storage: Storage,
     
     auth: Option<auth::Auth>,
 }
 
 impl<T: IO> Smtp<T> {
-    pub fn new(connhandler: ConnectionHandler<T>, config: Config, user_db: UserDBMtx<Postgres>, storage: Storage) -> Smtp<T> {
+    pub fn new(connhandler: ConnectionHandler<T>, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: Some(connhandler),
@@ -150,7 +149,7 @@ impl<T: IO> Smtp<T> {
         }
     }
     #[cfg(test)]
-    pub fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx<Postgres>, storage: Storage) -> Smtp<T> {
+    pub fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx, storage: Storage) -> Smtp<T> {
         Smtp {
             conn_writer: ConnectionWriter {
                 conn: None,
@@ -544,7 +543,7 @@ impl<T: IO> Smtp<T> {
     async fn deliver_mail(&self) -> Result<(), DeliveryError> {
         let mut mailboxes: Vec<PathBuf> = Vec::new();
         for rcpt in &self.mail.recipients {
-            let mb = match self.user_db.lock().unwrap().get_mailbox_for_recipient(rcpt).await {
+            let mb = match self.user_db.lock().unwrap().get_mailbox_for_recipient(rcpt) {
                 Ok(mb) => mb,
                 Err(_) => return Err(DeliveryError::NoSuchUser(rcpt.address.clone()))
             };

@@ -11,12 +11,11 @@ pub(crate) enum Error {
 
 pub(crate) trait UserDB {
     fn authorize(&self, authorized: &Authorized, password: String) -> bool;
-    async fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error>;
+    fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error>;
 
     #[cfg(test)]
     fn mock(&mut self, username: String, password: String);
 }
 
-/// T: UserDBT
-pub(crate) type UserDBMtx<T> = Arc<Mutex<T>>;
+pub(crate) type UserDBMtx = Arc<Mutex<dyn UserDB + Send>>;
 
