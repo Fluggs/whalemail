@@ -47,7 +47,7 @@ struct TlsListener {
     tcp_listener: TcpListener 
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> io::Result<()> {
     let config = match Config::load() {
         Ok(config) => config,
