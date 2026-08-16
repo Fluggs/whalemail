@@ -1,4 +1,5 @@
 /target
+/new
 Cargo.lock
 conf.ini
 
