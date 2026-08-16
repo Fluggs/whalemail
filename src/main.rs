@@ -11,6 +11,8 @@ mod auth {
 mod userdb {
     pub(crate) mod drivers {
         pub(crate) mod postgres;
+        #[cfg(test)]
+        pub(crate) mod mock_db;
     }
     pub(crate) mod userdb;
 }

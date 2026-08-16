@@ -7,16 +7,9 @@ use crate::config::UserDBConfig;
 use crate::smtp::smtp_mail::MailAddress;
 use crate::userdb::userdb::{Error, UserDBMtx, UserDB};
 
-
-struct PostgresClient {
-    client: Client,
-}
-
 pub(crate) struct Postgres {
     // If these are set, all authorize() calls validate against this
-    mock_username: Option<String>,
-    mock_password: Option<String>,
-    postgres: Option<PostgresClient>,
+    client: Client,
 }
 
 impl Postgres {
@@ -35,11 +28,7 @@ impl Postgres {
             }
         }?;
         let r = Postgres {
-            mock_username: None,
-            mock_password: None,
-            postgres: Some(PostgresClient {
-                client,
-            })
+            client,
         };
 
         tokio::spawn(async move {
@@ -51,26 +40,11 @@ impl Postgres {
 
         Ok(Arc::new(Mutex::new(r)))
     }
-
-    #[cfg(test)]
-    pub(crate) fn new_mock() -> UserDBMtx {
-        todo!()
-    }
-
-    fn client(&self) -> &Client {
-        let p = &self.postgres.as_ref();
-        &p.unwrap().client
-    }
 }
 
 impl UserDB for Postgres {
     fn authorize(&self, authorized: &Authorized, password: String) -> bool {
-        if self.mock_username.is_some() {
-            return authorized.identity.eq(&self.mock_username.clone().unwrap())
-                && password.eq(&self.mock_password.clone().unwrap());
-        }
-
-        false
+        todo!()
     }
 
     /**
@@ -79,7 +53,7 @@ impl UserDB for Postgres {
     fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error> {
         let runtime = tokio::runtime::Handle::current();
         let rows = runtime.block_on(
-            self.client()
+            self.client
             .query("SELECT home AS mailbox_home FROM users WHERE username = $1::TEXT AND domain = $2::TEXT;",
                    &[&rcpt.local_part, &rcpt.domain])
         )
@@ -106,8 +80,12 @@ impl UserDB for Postgres {
     }
 
     #[cfg(test)]
-    fn mock(&mut self, username: String, password: String) {
-        self.mock_username = Some(username);
-        self.mock_password = Some(password);
+    fn mock_user(&mut self, _username: String, _password: String, _mailbox: String) {
+        todo!()
+    }
+
+    #[cfg(test)]
+    fn mock_mailbox(&mut self, _mailbox: String) {
+        todo!()
     }
 }

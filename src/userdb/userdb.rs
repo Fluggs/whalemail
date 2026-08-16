@@ -14,7 +14,10 @@ pub(crate) trait UserDB {
     fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error>;
 
     #[cfg(test)]
-    fn mock(&mut self, username: String, password: String);
+    fn mock_user(&mut self, username: String, password: String, mailbox: String);
+
+    #[cfg(test)]
+    fn mock_mailbox(&mut self, mailbox: String);
 }
 
 pub(crate) type UserDBMtx = Arc<Mutex<dyn UserDB + Send>>;

@@ -34,6 +34,8 @@ mod tests_smtp {
 
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
+        s.user_db.lock().unwrap().mock_mailbox("rcv@whalemail.net".to_string());
+        
         expect_msg!(s, "220 hi\r\n");
 
         s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -68,6 +70,8 @@ mod tests_smtp {
 
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
+        s.user_db.lock().unwrap().mock_mailbox("rcv@whalemail.net".to_string());
+        
         expect_msg!(s, "220 hi\r\n");
 
         s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -101,6 +105,8 @@ mod tests_smtp {
         let mailct_2 = "more blob\r\n.\r\n".to_string();
         let mut s: Smtp<TcpStream> = test_setup();
         s.init_smtp().await.unwrap();
+        s.user_db.lock().unwrap().mock_mailbox("rcv@whalemail.net".to_string());
+        
         expect_msg!(s, "220 hi\r\n");
 
         s.handle("HELO test.org\r\n".to_string()).await.unwrap();
