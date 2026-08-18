@@ -1,22 +1,22 @@
 use tokio::fs;
 use std::{io};
-use std::path::{PathBuf};
 use std::time::{Instant, SystemTime};
-use crate::smtp::smtp_mail::Envelope;
+use camino::Utf8PathBuf;
+use crate::smtp::smtp_mail::{Envelope, MailAddress};
 use log::{debug};
 use crate::config::MaildirConfig;
 
 pub(crate) struct Storage {
     hostname: String,
-    user_maildir_path: String,
+    config: MaildirConfig,
     base_instant: Instant,
 }
 
 impl Storage {
     pub(crate) fn new(hostname: String, maildir_config: MaildirConfig) -> Self {
         Self {
-            hostname: hostname,
-            user_maildir_path: maildir_config.user_maildir_path,
+            hostname,
+            config: maildir_config,
             base_instant: Instant::now(),
         }
     }
@@ -25,21 +25,41 @@ impl Storage {
     pub(crate) fn mock() -> Self {
         Self {
             hostname: String::new(),
-            user_maildir_path: String::new(),
+            config: MaildirConfig { user_maildir_path: String::new() },
             base_instant: Instant::now(),
         }
     }
     
     /**
+    Used variables:
+    %{hostname} for the hostname from config
+    %{user} for the recipient mail address
+    %{mailboxhome} for mailbox home as returned by userdb
+    */
+    fn build_new_dir(&self, mut mailbox_home: String, recipient: &MailAddress) -> Utf8PathBuf {
+        if mailbox_home.ends_with("/") {
+            mailbox_home.pop();
+        }
+        let r = self.config.user_maildir_path
+            .replace("%{mailboxhome}", mailbox_home.as_str())
+            .replace("%{user}", recipient.address.as_str())
+            .replace("%{hostname}", self.hostname.as_str());
+        
+        let mut r = Utf8PathBuf::from(r);
+        r.push("new");
+        r
+    }
+    
+    /**
     Stores a mail in a mailbox identified by its name. Actual mailbox path is determined by config.
     */
-    pub(crate) async fn store(&self, mail: &Envelope, mut mailbox_home: PathBuf) -> Result<(), io::Error> {
-        mailbox_home.push("new");
-        debug!("Writing mail '{}' to '{}'", mail.uuid, mailbox_home.display());
+    pub(crate) async fn store(&self, mail: &Envelope, rcpt: &MailAddress, mailbox_home: String) -> Result<(), io::Error> {
+        let mut mailpath = self.build_new_dir(mailbox_home, rcpt);
+        debug!("Writing mail '{}' to '{}'", mail.uuid, mailpath);
 
-        fs::create_dir_all(&mailbox_home).await?;
-        mailbox_home.push(self.maildir_file_name());
-        fs::write(mailbox_home, &mail.body).await?;
+        fs::create_dir_all(&mailpath).await?;
+        mailpath.push(self.maildir_file_name());
+        fs::write(mailpath, &mail.body).await?;
         Ok(())
     }
     

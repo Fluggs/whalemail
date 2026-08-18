@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use log::{debug, error};
 use tokio_postgres::{Client, NoTls};
@@ -50,7 +49,7 @@ impl UserDB for Postgres {
     /**
     Takes a recipient and retrieves its mailbox name from the user db
     */
-    fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error> {
+    fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {
         let runtime = tokio::runtime::Handle::current();
         let rows = tokio::task::block_in_place(move ||
             runtime.block_on(self.client
@@ -73,7 +72,7 @@ impl UserDB for Postgres {
             }
         };
 
-        let r: PathBuf = PathBuf::from(row.get::<&str, String>("mailbox_home"));
+        let r = row.get::<&str, String>("mailbox_home");
         debug!("Found mailbox home for recipient: '{:?}' for '{}'", r, rcpt.address);
 
         Ok(r)

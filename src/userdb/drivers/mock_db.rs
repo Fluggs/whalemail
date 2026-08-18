@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use crate::auth::auth::Authorized;
 use crate::smtp::smtp_mail::MailAddress;
@@ -28,9 +27,9 @@ impl UserDB for MockDB {
             && password.eq(&self.password.clone())
     }
 
-    fn get_mailbox_for_recipient(&self, rcpt: &MailAddress) -> Result<PathBuf, Error> {
+    fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {
         match rcpt.address.eq(&self.mailbox) {
-            true => Ok(PathBuf::new()),
+            true => Ok(String::new()),
             false => Err(Error::DBError)
         }
     }
