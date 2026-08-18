@@ -29,7 +29,7 @@ impl Storage {
             base_instant: Instant::now(),
         }
     }
-    
+
     /**
     Used variables:
     %{hostname} for the hostname from config
@@ -42,14 +42,14 @@ impl Storage {
         }
         let r = self.config.user_maildir_path
             .replace("%{mailboxhome}", mailbox_home.as_str());
-        
+
         if !r.contains("%{user}") {
-            warn!("Maildir configuration does not contain 'user' variable.");
+            warn!(target: "maildir", "Maildir configuration does not contain 'user' variable.");
         }
-        
+
         let r = r.replace("%{user}", recipient.address.as_str())
             .replace("%{hostname}", self.hostname.as_str());
-        
+
         let mut r = Utf8PathBuf::from(r);
         r.push("new");
         r
