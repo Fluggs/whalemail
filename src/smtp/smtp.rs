@@ -1,5 +1,4 @@
 use std::{fmt, io, sync};
-use camino::Utf8PathBuf;
 use strum::{Display, EnumString};
 use strum_macros::IntoStaticStr;
 use log::{debug, info};

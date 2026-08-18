@@ -3,7 +3,7 @@ use std::{io};
 use std::time::{Instant, SystemTime};
 use camino::Utf8PathBuf;
 use crate::smtp::smtp_mail::{Envelope, MailAddress};
-use log::{debug};
+use log::{debug, warn};
 use crate::config::MaildirConfig;
 
 pub(crate) struct Storage {
@@ -41,8 +41,13 @@ impl Storage {
             mailbox_home.pop();
         }
         let r = self.config.user_maildir_path
-            .replace("%{mailboxhome}", mailbox_home.as_str())
-            .replace("%{user}", recipient.address.as_str())
+            .replace("%{mailboxhome}", mailbox_home.as_str());
+        
+        if !r.contains("%{user}") {
+            warn!("Maildir configuration does not contain 'user' variable.");
+        }
+        
+        let r = r.replace("%{user}", recipient.address.as_str())
             .replace("%{hostname}", self.hostname.as_str());
         
         let mut r = Utf8PathBuf::from(r);
