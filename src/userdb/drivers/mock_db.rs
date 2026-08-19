@@ -29,7 +29,7 @@ impl UserDB for MockDB {
 
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {
         match rcpt.address.eq(&self.mailbox) {
-            true => Ok(String::new()),
+            true => Ok(String::from("testmails/%{user}")),
             false => Err(Error::DBError)
         }
     }
