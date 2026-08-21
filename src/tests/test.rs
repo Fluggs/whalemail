@@ -3,7 +3,7 @@ use crate::smtp::smtp_error::SmtpError;
 #[cfg(test)]
 macro_rules! expect_msg {
     ($s:expr, $x:expr) => (
-        let last_msg = $s.conn_writer.conn_testbed.as_mut().unwrap().receive().unwrap_or("<None>".to_string());
+        let last_msg = $s.receive().unwrap_or("<None>".to_string());
         assert_eq!(
             last_msg.clone(),
             $x.to_string(),
@@ -58,22 +58,22 @@ pub mod test {
     use crate::userdb::drivers::mock_db::MockDB;
     use crate::config::Config;
     use crate::net::IO;
-    use crate::smtp::smtp::Smtp;
+    use crate::smtp::smtp::{ehlo_response, Smtp2};
     use crate::maildir::Storage;
     use crate::tests::test::{SmtpTest};
 
-    pub(crate) fn ehlo_msg(s: &Smtp<TcpStream>) -> String {
-        Smtp::<TcpStream>::ehlo_response(s.config_ref())
+    pub(crate) fn ehlo_msg(s: &Smtp2<TcpStream>) -> String {
+        ehlo_response(s.config())
     }
 
     #[cfg(test)]
-    pub(crate) fn test_setup<T: IO>() -> Smtp<T> {
+    pub(crate) async fn test_setup<T: IO>() -> Smtp2<T> {
         match env_logger::Builder::from_env(Env::default().default_filter_or("debug"))
             .is_test(true).try_init() {
             Ok(()) => {},
             Err(_) => {}
         };
-        Smtp::new_testbed(
+        Smtp2::new_testbed(
             SmtpTest {
                 last_msg: None,
                 received: false,
@@ -81,7 +81,7 @@ pub mod test {
             Config::mock(),
             MockDB::new(),
             Storage::mock()
-        )
+        ).await.unwrap()
     }
 
 }

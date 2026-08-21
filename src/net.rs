@@ -6,11 +6,11 @@ use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
-use crate::smtp::smtp::{Smtp, StateKind};
+use crate::smtp::smtp::{Smtp, Smtp2, StateKind};
 use crate::smtp::smtp_error::SmtpError;
 use crate::maildir::Storage;
 
-pub(crate) trait IO: AsyncRead + AsyncWrite + Unpin {}
+pub trait IO: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin> IO for T {}
 
 pub struct ConnectionHandler<T: IO> {
@@ -33,16 +33,16 @@ impl<T: IO> ConnectionHandler<T> {
     pub async fn process_socket(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
         let maildir_config = (&config.maildir_config).clone();
         let hostname = config.hostname.clone();
-        let mut smtp = Smtp::new(self, config, user_db, Storage::new(hostname, maildir_config));
-        smtp.init_smtp()
+        let mut smtp = Smtp2::new(
+            self,
+            config,
+            user_db,
+            Storage::new(hostname, maildir_config)
+        )
             .await
             .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
         
         loop {
-            if smtp.closed {
-                // drop closes socket
-                break;
-            }
 
             let mut buf = [0; 4096];
             match smtp.connhandler_mut().read(&mut buf).await? {

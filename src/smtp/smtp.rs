@@ -113,6 +113,243 @@ impl<T: IO> ConnectionWriter<T> {
     }
 }
 
+pub trait SmtpStateT<State: Send>: Sized {
+    async fn from(state: State, cmd: Command) -> Result<Self, SmtpError>;
+}
+
+#[derive(Debug)]
+struct InitState {
+}
+
+impl InitState {
+    pub(crate) async fn greet<T: IO>(writer: &mut ConnectionWriter<T>, _config: &Config) -> Result<Self, SmtpError> {
+        // todo refine greeting message
+        writer.send("220 hi\r\n".to_string()).await?;
+        Ok(Self {})
+    }
+}
+
+#[derive(Debug)]
+struct EhloState {
+}
+
+impl EhloState {
+    fn build_ehlo_response(config: &Config) -> String {
+        format!(
+            "250-{}\r\n\
+            250 AUTH PLAIN LOGIN\r\n"
+            , config.hostname
+        ).to_string()
+    }
+    async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config) -> Result<Self, SmtpError> {
+        writer.send(EhloState::build_ehlo_response(config)).await?;
+        Ok(Self {})
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn ehlo_response(config: &Config) -> String {
+    EhloState::build_ehlo_response(config)
+}
+
+
+
+#[derive(Debug)]
+pub(crate) enum SmtpState2 {
+    // todo rename enum
+    INIT(InitState),
+    EHLO(EhloState),
+    QUIT,
+}
+
+pub(crate) struct Smtp2<T: IO> {
+    // todo rename struct
+    conn_writer: ConnectionWriter<T>,
+    config: Config,
+    state: SmtpState2,
+    state_history: Vec<SmtpState2>,
+    user_db: UserDBMtx,
+    storage: Storage,
+    mail: Envelope,
+}
+
+impl<T: IO> Smtp2<T> {
+    async fn build(mut cw: ConnectionWriter<T>, config: Config, user_db: UserDBMtx, storage: Storage) -> Result<Self, SmtpError> {
+        let state = InitState::greet(&mut cw, &config).await?;
+
+        Ok(Self {
+            conn_writer: cw,
+            config,
+            state: SmtpState2::INIT(state),
+            state_history: vec![],
+            user_db,
+            storage,
+            mail: Envelope::new(),
+        })
+    }
+    
+    pub(crate) async fn new(
+        connhandler: ConnectionHandler<T>,
+        config: Config,
+        user_db: UserDBMtx,
+        storage: Storage
+    ) -> Result<Self, SmtpError> {
+        let cw = ConnectionWriter {
+            conn: Some(connhandler),
+            conn_testbed: None,
+        };
+        
+        Self::build(cw, config, user_db, storage).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx, storage: Storage) -> Result<Self, SmtpError> {
+        let cw = ConnectionWriter {
+            conn: None,
+            conn_testbed: Some(testbed),
+        };
+        
+        Self::build(cw, config, user_db, storage).await
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn get_testbed(&mut self) -> &SmtpTest {
+        self.conn_writer.conn_testbed.as_mut().unwrap()
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn receive(&mut self) -> Option<String> {
+        self.conn_writer.conn_testbed.as_mut().unwrap().receive()
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn expect_no_msg(&mut self) {
+        self.conn_writer.conn_testbed.as_mut().unwrap().expect_no_msg()
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn user_db(&self) -> &UserDBMtx {
+        &self.user_db
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn mail(&self) -> &Envelope {
+        &self.mail
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &Config {
+        &self.config
+    }
+    
+    async fn send(&mut self, s: String) -> Result<(), SmtpError> {
+        self.conn_writer.send(s).await
+    }
+
+    pub(crate) fn connhandler_mut(&mut self) -> &mut ConnectionHandler<T> {
+        let r = &mut self.conn_writer.conn;
+        r.as_mut().expect("Unexpected test mode for SMTP connection handler")
+    }
+    
+    pub(crate) async fn handle(&mut self, input: String) -> Result<StateKind, io::Error> {
+        let cmd = Command::new(input);
+
+        debug!("Command: {}", match &cmd.verb {
+            Some(v) => format!("{v}"),
+            None => "<data input>".to_string()
+        });
+        
+        let new_state = match (&self.state, &cmd.verb)  {
+            (SmtpState2::INIT(_), Some(SmtpState::EHLO)) => {
+                match EhloState::respond(&mut self.conn_writer, &self.config).await {
+                    Ok(ehlo) => Ok(SmtpState2::EHLO(ehlo)),
+                    Err(e) => Err(e)
+                }
+            },
+            (state, verb) => {
+                debug!("Bad sequence: {:?}", self.state_history);
+                Ok(self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
+                    .and(Ok(SmtpState2::QUIT))
+                    .or_else(|err| Err(err.io_error.unwrap()))?)
+            }
+        };
+        
+        // todo handle error
+        self.state = new_state.unwrap();
+        
+        Ok(StateKind::CONTINUE)
+    }
+
+    /**
+    Decodes mails as per transparency procedure in RFC5321#4.5.2 and pushes the result to Smtp.mail.
+    */
+    pub(crate) fn decode_transparency(&mut self, s: String) -> bool {
+        debug!("Decoding transparency for \"{s}\"");
+        let mut buf: Vec<&str> = Vec::new();
+        let mut capacity = 0;
+        let mut has_changed = false;
+
+        // Catch empty mail; treat period on first line as end of mail
+        match s.starts_with(".\r\n") {
+            true => {
+                self.mail.body = ".\r\n".to_string();
+                return true;
+            }
+            false => {}
+        }
+
+        // Find and store \r\n.\r\n positions
+        let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {
+            Some(m) => (m.start(), m.end(), true),
+            None => (s.len(), s.len(), false)
+        };
+
+
+        // Handle transparency on first line
+        let mut chunk_start = match s.starts_with(".") {
+            true => {
+                has_changed = true;
+                1
+            },
+            false => 0
+        };
+
+        // Write every chunk between two \r\n. into buf to assemble the new body later
+        let mut end_loop = false;
+        while !end_loop {
+
+            let chunk_end = match RE.period_linestart.find(&s[chunk_start..mail_end_start]) {
+                Some(m) => {
+                    has_changed = true;
+                    m.start() + "\r\n".len() + 1
+                },
+                None => {
+                    end_loop = true;
+                    mail_end_end
+                }
+            };
+
+            buf.push(&s[chunk_start..chunk_end]);
+            capacity += chunk_end - chunk_start;
+            debug!("Recognized mail part with len {}:\n{:?}", chunk_end - chunk_start, &s[chunk_start..chunk_end]);
+
+            chunk_start = chunk_end + ".".len();
+        }
+
+        match has_changed {
+            true => {
+                self.mail.body.reserve(capacity);
+                for el in buf {
+                    self.mail.body += el;
+                }
+            },
+            false => self.mail.body.push_str(s.as_str())
+        };
+
+        mail_is_complete
+    }
+}
+
 pub struct Smtp<T: IO> {
     pub(crate) conn_writer: ConnectionWriter<T>,
     pub(crate) closed: bool,
