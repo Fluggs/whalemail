@@ -63,9 +63,9 @@ impl<T: IO> ConnectionHandler<T> {
                         }
                     };
 
-                    match smtp.handle(v).await {
-                        Ok(StateKind::QUIT) => break,
-                        Ok(StateKind::CONTINUE) => (),
+                    smtp = match smtp.handle(v).await {
+                        Ok((_, StateKind::QUIT)) => break,
+                        Ok((smtp, StateKind::CONTINUE)) => smtp,
                         Err(e) => return Err(e.into())
                     };
                 },

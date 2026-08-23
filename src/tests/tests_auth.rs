@@ -18,10 +18,10 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH CRAM-MD5")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH CRAM-MD5")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
     }
 
@@ -30,10 +30,10 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
     }
 
@@ -42,12 +42,12 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf("AUTH PLAIN spongebob\0spongebob\0pineapple!")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH PLAIN spongebob\0spongebob\0pineapple!")).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
@@ -57,15 +57,15 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH PLAIN")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH PLAIN")).await.unwrap();
         expect_msg!(s, "334 \r\n");
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf("spongebob\0spongebob\0pineapple!")).await.unwrap();
+        (s, _) = s.handle(lf("spongebob\0spongebob\0pineapple!")).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
@@ -74,12 +74,12 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(format!(
+        (s, _) = s.handle(format!(
             "AUTH PLAIN {}\r\n",
             BASE64_STANDARD.encode("spongebob\0spongebob\0pineapple!"))).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
@@ -90,13 +90,13 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
         let credentials = BASE64_STANDARD.encode("spongebob\0spongebob\0pineapple!");
-        s.handle(format!("AUTH PLAIN {}", credentials)).await.unwrap();
+        (s, _) = s.handle(format!("AUTH PLAIN {}", credentials)).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
@@ -105,12 +105,12 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf("AUTH PLAIN \0spongebob\0pineapple!")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH PLAIN \0spongebob\0pineapple!")).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
@@ -119,12 +119,12 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
         
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf("AUTH PLAIN spongebob\0spongebob\0wrongpw")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH PLAIN spongebob\0spongebob\0wrongpw")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Unauthorized\r\n");
     }
 
@@ -133,18 +133,18 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org\r\n")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org\r\n")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH LOGIN")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf(BASE64_STANDARD.encode(b"spongebob").as_ref())).await.unwrap();
+        (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"spongebob").as_ref())).await.unwrap();
         expect_msg!(s, "334 UGFzc3dvcmQA\r\n");
         
-        s.handle(lf(BASE64_STANDARD.encode(b"pineapple!").as_ref())).await.unwrap();
+        (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"pineapple!").as_ref())).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }
 
@@ -153,10 +153,10 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH login")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH login")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
     }
 
@@ -165,10 +165,10 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH MECH&!ARG")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH MECH&!ARG")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Invalid authentication mechanism\r\n");
     }
 
@@ -177,15 +177,15 @@ mod tests_auth {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle(lf("EHLO test.org")).await.unwrap();
+        (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle(lf("AUTH LOGIN")).await.unwrap();
+        (s, _) = s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
         s.user_db().lock().unwrap().mock_user("spongebob".to_string(), "pineapple!".to_string(), String::new());
 
-        s.handle(lf("spongebob\0")).await.unwrap();
+        (s, _) = s.handle(lf("spongebob\0")).await.unwrap();
         expect_msg!(s, "535 5.7.8 Unauthorized\r\n");
     }
 }

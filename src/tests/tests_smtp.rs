@@ -18,10 +18,10 @@ mod tests_smtp {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("blub\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("blub\r\n".to_string()).await.unwrap();
         expect_msg!(s, "500 Unrecognized command\r\n");
     }
 
@@ -35,22 +35,23 @@ mod tests_smtp {
         
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        (s, _) = s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
+        (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("DATA\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
         expect_msg!(s, "354 start mail input\r\n");
 
-        s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
+        let r;
+        (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
         assert_eq!(r, StateKind::QUIT);
 
@@ -70,22 +71,23 @@ mod tests_smtp {
         
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        (s, _) = s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
+        (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("DATA\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
         expect_msg!(s, "354 start mail input\r\n");
 
-        s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
+        let r;
+        (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
         assert_eq!(r, StateKind::QUIT);
 
@@ -104,26 +106,27 @@ mod tests_smtp {
         
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("RCPT TO:<rcv@whalemail.net>\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("RCPT TO:<rcv@whalemail.net>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("DATA\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
         expect_msg!(s, "354 start mail input\r\n");
 
-        s.handle(mailct_1.clone()).await.unwrap();
+        (s, _) = s.handle(mailct_1.clone()).await.unwrap();
         assert!(!s.mail().is_finished());
         s.expect_no_msg();
 
-        s.handle(mailct_2.clone()).await.unwrap();
+        (s, _) = s.handle(mailct_2.clone()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        let r = s.handle("QUIT\r\n".to_string()).await.unwrap();
+        let r;
+        (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
         assert_eq!(r, StateKind::QUIT);
 
@@ -138,16 +141,16 @@ mod tests_smtp {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle(format!("RCPT TO:<{}>\r\n", rcpt1.address.as_str())).await.unwrap();
+        (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt1.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle(format!("RCPT TO:<{}>\r\n", rcpt2.address.as_str())).await.unwrap();
+        (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt2.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
         assert_eq!(s.mail().recipients, Vec::from([rcpt1, rcpt2]));
@@ -158,13 +161,13 @@ mod tests_smtp {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
-        s.handle("HELO test.org\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        s.handle("DATA\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
         expect_msg!(s, "503 Bad sequence\r\n");
     }
 
@@ -173,7 +176,7 @@ mod tests_smtp {
      */
     #[tokio::test]
     async fn test_dtp_empty_s() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let expected = "".to_string();
         assert_eq!(s.decode_transparency(expected.clone()), false);
         assert_eq!(s.mail().body, expected);
