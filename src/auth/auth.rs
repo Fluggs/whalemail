@@ -132,7 +132,7 @@ impl Writer {
                 debug!("Flushing buffer '{}'", buf);
                 prefix.push_str(buf.as_str());
                 prefix.push_str(suffix);
-                conn.send(prefix).await.or_else(|e| Err(e.io_error.expect("Expected io error")))
+                Ok(conn.send(prefix).await?)
             }
             None => { Ok(()) }
         }

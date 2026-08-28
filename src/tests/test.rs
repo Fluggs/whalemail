@@ -1,5 +1,3 @@
-use crate::smtp::smtp_error::SmtpError;
-
 #[cfg(test)]
 macro_rules! expect_msg {
     ($s:expr, $x:expr) => (
@@ -23,7 +21,7 @@ pub struct SmtpTest {
 }
 
 impl SmtpTest {
-    pub fn send(&mut self, msg: String) -> Result<(), SmtpError> {
+    pub fn send(&mut self, msg: String) -> Result<(), std::io::Error> {
         if !self.received && self.last_msg.is_some() {
             panic!("Last message was never received: '{}'", self.last_msg.clone().unwrap())
         }

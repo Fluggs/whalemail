@@ -35,7 +35,7 @@ impl Display for MailAddress {
 
 pub(crate) struct Envelope {
     // todo convert to MailAddress
-    pub(crate) sender: Option<String>,
+    pub(crate) sender: String,
     pub(crate) recipients: Vec<MailAddress>,
     pub(crate) body: String,
     pub(crate) uuid: Uuid,
@@ -45,7 +45,7 @@ pub(crate) struct Envelope {
 impl Envelope {
     pub(crate) fn new2() -> Envelope {
         let r = Envelope {
-            sender: None,
+            sender: String::new(),
             recipients: Vec::new(),
             body: "".to_string(),
             uuid: Uuid::new_v4(),
@@ -59,7 +59,7 @@ impl Envelope {
     
     pub(crate) fn new(sender: String, recipients: Vec<MailAddress>, body: String) -> Self {
         Self {
-            sender: Some(sender),
+            sender,
             recipients,
             body,
             uuid: Uuid::new_v4(),

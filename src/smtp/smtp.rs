@@ -1,4 +1,4 @@
-use std::{fmt, io, mem, sync};
+use std::{fmt, io, sync};
 use std::fmt::{Debug, Formatter};
 use strum::{Display, EnumString};
 use strum_macros::{AsStaticStr, IntoStaticStr};
@@ -67,10 +67,10 @@ impl Command {
     /**
     Returns a copy of Command.message with trailing \r\n removed.
     */
-    fn msg_strip_lf(&self) -> Result<String, SmtpError> {
+    fn msg_strip_lf(&self) -> String {
         let r = match self.message.ends_with("\r\n") {
-            true => Ok(self.message[0..self.message.len() - 2].to_string()),
-            false => Err(SmtpError::bad_command(self))
+            true => self.message[0..self.message.len() - 2].to_string(),
+            false => self.message.to_string()
         };
         debug!("Turning '{:?}' into '{:?}'", self.message, r);
         r
@@ -96,10 +96,9 @@ pub struct ConnectionWriter<T: IO> {
 }
 
 impl<T: IO> ConnectionWriter<T> {
-    pub(crate) async fn send(&mut self, s: String) -> Result<(), SmtpError> {
+    pub(crate) async fn send(&mut self, s: String) -> Result<(), io::Error> {
         match &mut self.conn {
-            Some(c) => c.send(s).await
-                .or_else(|error| Err(SmtpError::from_io(error))),
+            Some(c) => Ok(c.send(s).await?),
             None => {
                 debug!("Sending test message '{:?}'", s);
                 let mut r = Ok(());
@@ -118,12 +117,25 @@ pub trait SmtpStateT<State: Send>: Sized {
     async fn from(state: State, cmd: Command) -> Result<Self, SmtpError>;
 }
 
+struct BadCommandError {}
+
+impl BadCommandError {
+    async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        Self::write_msg(writer).await
+    }
+    
+    async fn write_msg<T: IO>(writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        //todo find correct message
+        writer.send("TODO bad command".to_string()).await
+    }
+}
+
 #[derive(Debug)]
 struct InitState {
 }
 
 impl InitState {
-    pub(crate) async fn greet<T: IO>(writer: &mut ConnectionWriter<T>, _config: &Config) -> Result<Self, SmtpError> {
+    pub(crate) async fn greet<T: IO>(writer: &mut ConnectionWriter<T>, _config: &Config) -> Result<Self, io::Error> {
         // todo refine greeting message
         writer.send("220 hi\r\n".to_string()).await?;
         Ok(Self {})
@@ -135,7 +147,7 @@ struct HeloState {
 }
 
 impl HeloState {
-    async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, _from: InitState) -> Result<Self, SmtpError> {
+    async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, _from: InitState) -> Result<Self, io::Error> {
         writer.send("250 OK\r\n".to_string()).await?;
         Ok(Self {})
     }
@@ -144,8 +156,16 @@ impl HeloState {
         self,
         writer: &mut ConnectionWriter<T>,
         cmd: Command
-    ) -> Result<MailState, SmtpError> {
-        MailState::mail_from(writer, cmd, SmtpState::HELO).await
+    ) -> Result<MailFromState, Result<HeloState, io::Error>> {
+        match MailFromState::mail_from(writer, cmd, SmtpState::HELO).await {
+            Ok(mail) => Ok(mail),
+            Err(Ok(bad_cmd)) => {
+                bad_cmd.respond(writer).await
+                    .or_else(|ioerr| Err(Err(ioerr)))?;
+                Err(Ok(self))
+            },
+            Err(Err(io_err)) => Err(Err(io_err))
+            }
     }
 }
 
@@ -161,7 +181,7 @@ impl EhloState {
             , config.hostname
         ).to_string()
     }
-    async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config, _from: InitState) -> Result<Self, SmtpError> {
+    async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config, _from: InitState) -> Result<Self, io::Error> {
         writer.send(EhloState::build_ehlo_response(config)).await?;
         Ok(Self {})
     }
@@ -170,8 +190,16 @@ impl EhloState {
         self,
         writer: &mut ConnectionWriter<T>,
         cmd: Command
-    ) -> Result<MailState, SmtpError> {
-        MailState::mail_from(writer, cmd, SmtpState::EHLO).await
+    ) -> Result<MailFromState, Result<EhloState, io::Error>> {
+        match MailFromState::mail_from(writer, cmd, SmtpState::EHLO).await {
+            Ok(mail) => Ok(mail),
+            Err(Ok(bad_cmd)) => {
+                bad_cmd.respond(writer).await
+                    .or_else(|ioerr| Err(Err(ioerr)))?;
+                Err(Ok(self))
+            },
+            Err(Err(io_err)) => Err(Err(io_err))
+        }
     }
 }
 
@@ -180,22 +208,46 @@ pub(crate) fn ehlo_response(config: &Config) -> String {
     EhloState::build_ehlo_response(config)
 }
 
+enum AuthResult {
+    Unfinished(AuthState),
+    Authorized((EhloState, User)),
+    BadMechanism(EhloState),
+    BadCredentials(EhloState),
+}
+
+impl AuthResult {
+    async fn respond<T: IO>(self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        match self {
+            AuthResult::Unfinished(_) => Ok(()),
+            AuthResult::Authorized(_) => writer.send(
+                "235 2.7.0 Authentication successful\r\n".to_string()).await,
+            AuthResult::BadMechanism(_) => writer.send(
+                "535 5.7.8 Invalid authentication mechanism\r\n".to_string()).await,
+            AuthResult::BadCredentials(_) => writer.send(
+                "535 5.7.8 Unauthorized\r\n".to_string()).await,
+        }
+    }
+}
+
 struct AuthState {
     auth: auth::Auth,
-    user: Option<User>,
     from_state: EhloState,
 }
 
 impl AuthState {
     /**
-    Handles an AUTH command. Starts the SASL auth process.
+    Handles an AUTH command by starting the SASL auth process.
+    
+    Returns:
+    * `Ok(SmptState::AUTH(self))` on successful SASL initiation
+    * `OK(SmtpState::EHLO(from))` on 
     */
     async fn init_sasl<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
         user_db: UserDBMtx,
         from: EhloState
-    ) -> Result<SmtpState2, SmtpError> {
+    ) -> Result<AuthResult, io::Error> {
         // Parse AUTH <mech> [mech_arg]
         let (mech, mech_arg) = match RE.auth_cmd.captures(cmd.message.as_str()) {
             Some(v) => (v.get(1), v.get(2)),
@@ -205,7 +257,7 @@ impl AuthState {
         let mech = match mech {
             Some(re_match) => String::from(re_match.as_str())
                 .to_ascii_uppercase(),
-            None => return Err(SmtpError::bad_auth_mech(&cmd, SmtpState::EHLO))
+            None => return Ok(AuthResult::BadMechanism(from))
         };
 
         let mech_arg = mech_arg
@@ -213,30 +265,29 @@ impl AuthState {
 
         let auth = match auth::Auth::new(user_db.clone(), mech, mech_arg) {
             Ok(auth) => auth,
-            Err(auth::Error::InvalidMechanism) => return Err(SmtpError::bad_auth_mech(&cmd, SmtpState::EHLO)),
-            Err(auth::Error::AuthUnsuccessful) => return Err(SmtpError::bad_credentials(&cmd, SmtpState::EHLO))
+            Err(auth::Error::InvalidMechanism) => return Ok(AuthResult::BadMechanism(from)),
+            Err(auth::Error::AuthUnsuccessful) => return Ok(AuthResult::BadCredentials(from))
         };
         
         let mut auth_state = Self {
             auth,
-            user: None,
             from_state: from
         };
         
         auth_state.auth_flush(writer).await?;
         debug!("authorized: '{:?}'", auth_state.auth.authorized());
 
+        // Handle whether the SASL session is already finished (e.g. PLAIN)
         match auth_state.auth.authorized() {
             Ok(Some(authorized)) => {
-                auth_state.finalize_authorization(writer, authorized).await?;
-                Ok(SmtpState2::EHLO(auth_state.from_state))
+                Ok(AuthResult::Authorized((auth_state.from_state, authorized)))
             },
             Ok(None) => {
-                Err(SmtpError::bad_credentials(&cmd, SmtpState::EHLO))?
+                Ok(AuthResult::BadCredentials(auth_state.from_state))
             },
 
             // SASL not finished yet, keep going
-            Err(_) => { Ok(SmtpState2::AUTH(auth_state)) }
+            Err(_) => { Ok(AuthResult::Unfinished(auth_state)) }
         }
     }
 
@@ -248,45 +299,28 @@ impl AuthState {
         mut self,
         writer: &mut ConnectionWriter<T>,
         cmd: Command
-    ) -> Result<SmtpState2, SmtpError> {
-        match self.auth.step(Some(cmd.msg_strip_lf()?.as_ref())) {
+    ) -> Result<AuthResult, io::Error> {
+        match self.auth.step(Some(cmd.msg_strip_lf().as_ref())) {
             Ok(None) => {
                 self.auth_flush(writer).await?;
-                Ok(SmtpState2::AUTH(self))
+                Ok(AuthResult::Unfinished(self))
             },
             Ok(Some(user)) => {
-                self.finalize_authorization(writer, user).await
-                    .and(Ok(SmtpState2::EHLO(self.from_state)))
+                Ok(AuthResult::Authorized((self.from_state, user)))
             },
             Err(_) => {
-                Err(SmtpError::bad_credentials(&cmd, SmtpState::AUTH))
+                Ok(AuthResult::BadCredentials(self.from_state))
             }
         }
-    }
-    
-    /**
-    Sends success message and handles Smtp state for an authorization success.
-    */
-    async fn finalize_authorization<T: IO>(
-        &mut self,
-        writer: &mut ConnectionWriter<T>,
-        user: User
-    ) -> Result<(), SmtpError> {
-        debug!("Finalizing auth");
-        self.user = Some(user);
-        writer.send("235 2.7.0 Authentication successful\r\n".to_string())
-            .await
-            .and(Ok(()))
     }
 
     /**
     Flushes the write buffer of `self.auth` in case SASL wants to write something.
     */
-    async fn auth_flush<T: IO>(&mut self, cw: &mut ConnectionWriter<T>) -> Result<(), SmtpError> {
+    async fn auth_flush<T: IO>(&mut self, cw: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
         self.auth
             .flush(cw, "334 ".to_string(), "\r\n")
             .await
-            .or_else(|e| Err(SmtpError::from_io(e)))
     }
 }
 
@@ -298,9 +332,9 @@ impl Debug for AuthState {
 
 /**
 Parses an address from an RCPT or MAIL command.
-Returns the contained address or `SmtpError::BADCOMMAND` on error.
+Returns the contained address or `BadCommandError` on error.
 */
-fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, SmtpError> {
+fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, BadCommandError> {
     let parse = match re.captures(&cmd.message) {
         Some(capture) => match capture.get(1) {
             Some(rcpt) => Some(rcpt.as_str().to_string()),
@@ -311,28 +345,45 @@ fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, SmtpE
 
     match parse {
         Some(rcpt) => Ok(rcpt),
-        None => Err(SmtpError::bad_command(&cmd))
+        None => Err(BadCommandError {})
     }
 }
 
-struct MailState {
+struct MailFromState {
     sender: String,
 }
 
-impl MailState {
+impl MailFromState {
     async fn mail_from<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
         old_state: SmtpState
-    ) -> Result<Self, SmtpError> {
+    ) -> Result<Self, Result<BadCommandError, io::Error>> {
         debug!("Handling MAIL: {}", cmd);
         let sender = parse_address_message_by_re(
             Regex::new(r"^MAIL FROM:<([^>]+)>\r\n$").unwrap(), &cmd
-        )?;
-        writer.send("250 OK\r\n".to_string()).await?;
+        )
+            .or_else(|bad_cmd| Err(Ok(bad_cmd)))?;
+        writer.send("250 OK\r\n".to_string()).await
+            .or_else(|ioerr| Err(Err(ioerr)))?;
         Ok(Self {
             sender,
         })
+    }
+}
+
+enum RcptError {
+    BadCommand,
+    InvalidMailbox
+}
+
+impl RcptError {
+    async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        match self {
+            RcptError::BadCommand => BadCommandError::write_msg(writer).await,
+            // todo find correct message
+            RcptError::InvalidMailbox => writer.send("invalid mailbox".to_string()).await
+        }
     }
 }
 
@@ -342,33 +393,59 @@ struct RcptState {
 }
 
 impl RcptState {
+    /**
+    Constructs an RcptState and handles adding the first recipient from an RCPT command.
+    */
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
-        old_state: MailState
-    ) -> Result<Self, SmtpError> {
+        old_state: MailFromState
+    ) -> Result<Self, Result<MailFromState, io::Error>> {
         let mut r = Self {
-            sender: old_state.sender,
+            sender: old_state.sender.clone(),
             recipients: Vec::new()
         };
         
-        r.add_rcpt(writer, cmd).await?;
-        Ok(r)
+        match r.add_rcpt(writer, cmd).await {
+            Ok(_) => Ok(r),
+            Err(Ok(rcpt_err)) => {
+                match rcpt_err.respond(writer).await {
+                    Ok(()) => Err(Ok(old_state)),
+                    Err(io_err) => Err(Err(io_err))
+                }
+            },
+            Err(Err(io_err)) => Err(Err(io_err))
+        }
     }
     
+    /**
+    Parses an RCPT command and adds the resulting recipient.
+    */
     async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, cmd: Command)
-        -> Result<(), SmtpError> {
+        -> Result<(), Result<RcptError, io::Error>> {
         let recipient = parse_address_message_by_re(
             Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap(), &cmd
-        )?;
+        )
+            .or_else(|_| Err(Ok(RcptError::BadCommand)))?;
         let recipient = MailAddress::new(recipient.as_str())
-            // todo remove state arg from SmtpError
-            .map_err(|_| SmtpError::invalid_mailbox(&cmd, SmtpState::MAIL))?;
+            .map_err(|_| RcptError::InvalidMailbox)
+            .or_else(|smtp_err| Err(Ok(smtp_err)))?;
 
         self.recipients.push(recipient);
-        writer.send("250 OK\r\n".to_string()).await?;
+        writer.send("250 OK\r\n".to_string()).await
+            .or_else(|ioerr| Err(Err(ioerr)))?;
         Ok(())
         
+    }
+}
+
+/// State rollback in case DATA command fails
+impl From<Envelope> for RcptState {
+    fn from(value: Envelope) -> RcptState {
+        RcptState {
+            sender: value.sender,
+            recipients: value.recipients,
+        }
     }
 }
 
@@ -385,7 +462,7 @@ impl DataState {
         writer: &mut ConnectionWriter<T>,
         user_db: UserDBMtx,
         old_state: RcptState)
-        -> Result<Self, SmtpError> {
+        -> Result<Self, io::Error> {
         writer.send("354 start mail input\r\n".to_string()).await?;
         
         Ok(Self {
@@ -408,12 +485,17 @@ impl DataState {
         }   
     }
     
+    async fn delivery_error_response<T: IO>(writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        //todo find correct error message
+        writer.send("Delivery error".to_string()).await
+    }
+    
     async fn receive_data<T: IO>(
         mut self,
         writer: &mut ConnectionWriter<T>,
         storage: &mut Storage,
         cmd: Command) 
-    -> Result<SmtpState2, SmtpError> {
+    -> Result<SmtpState2, io::Error> {
         debug!("Mail!: {}", cmd.message);
         let mail_end = self.decode_transparency(cmd.message);
         match mail_end {
@@ -425,7 +507,10 @@ impl DataState {
                         writer.send("250 OK\r\n".to_string()).await?;
                         Ok(SmtpState2::DATACOMPLETE(CompleteState::new(mail)))
                     },
-                    Err(err) => Err(err.into())
+                    Err(_) => {
+                        Self::delivery_error_response(writer).await?;
+                        Ok(SmtpState2::RCPT(mail.into()))
+                    }
                 }
             },
             false => Ok(SmtpState2::DATA(self))
@@ -565,7 +650,7 @@ enum SmtpState2 {
     HELO(HeloState),
     EHLO(EhloState),
     AUTH(AuthState),
-    MAIL(MailState),
+    MAIL(MailFromState),
     RCPT(RcptState),
     DATA(DataState),
     DATACOMPLETE(CompleteState),
@@ -592,7 +677,12 @@ pub(crate) struct Smtp2<T: IO> {
 }
 
 impl<T: IO> Smtp2<T> {
-    async fn build(mut cw: ConnectionWriter<T>, config: Config, user_db: UserDBMtx, storage: Storage) -> Result<Self, SmtpError> {
+    async fn build(
+        mut cw: ConnectionWriter<T>,
+        config: Config,
+        user_db: UserDBMtx,
+        storage: Storage
+    ) -> Result<Self, io::Error> {
         let state = InitState::greet(&mut cw, &config).await?;
 
         Ok(Self {
@@ -611,7 +701,7 @@ impl<T: IO> Smtp2<T> {
         config: Config,
         user_db: UserDBMtx,
         storage: Storage
-    ) -> Result<Self, SmtpError> {
+    ) -> Result<Self, io::Error> {
         let cw = ConnectionWriter {
             conn: Some(connhandler),
             conn_testbed: None,
@@ -620,7 +710,7 @@ impl<T: IO> Smtp2<T> {
         Self::build(cw, config, user_db, storage).await
     }
     
-    async fn send(&mut self, s: String) -> Result<(), SmtpError> {
+    async fn send(&mut self, s: String) -> Result<(), io::Error> {
         self.conn_writer.send(s).await
     }
 
@@ -638,61 +728,87 @@ impl<T: IO> Smtp2<T> {
         });
         
         self.state = match (self.state, &cmd.verb) {
+            
             (SmtpState2::INIT(old_state), Some(SmtpState::HELO)) => {
                 HeloState::respond(&mut self.conn_writer, old_state)
                     .await
                     .and_then(|helo| Ok(SmtpState2::HELO(helo)))
             },
+            
             (SmtpState2::INIT(old_state), Some(SmtpState::EHLO)) => {
                 EhloState::respond(&mut self.conn_writer, &self.config, old_state)
                     .await
                     .and_then(|ehlo| Ok(SmtpState2::EHLO(ehlo)))
             },
+            
             (SmtpState2::EHLO(ehlo), Some(SmtpState::AUTH)) => {
-                AuthState::init_sasl(
+                let auth = AuthState::init_sasl(
                     &mut self.conn_writer, cmd, self.user_db.clone(), ehlo
-                ).await
+                ).await?;
+                let (state, user) = Self::transition_auth_result(auth)?;
+                self.authorized = user;
+                Ok(state)
             },
+            
             (SmtpState2::AUTH(auth), _) => {
-                auth.handle_auth_step(&mut self.conn_writer, cmd).await
+                let auth = auth.handle_auth_step(&mut self.conn_writer, cmd).await?;
+                let (state, user) = Self::transition_auth_result(auth)?;
+                self.authorized = user;
+                Ok(state)
             }
+            
             (SmtpState2::HELO(helo), Some(SmtpState::MAIL)) => {
                 helo.mail_from(&mut self.conn_writer, cmd)
                     .await
                     .and_then(|mail| Ok(SmtpState2::MAIL(mail)))
+                    .or_else(|res_helo| Ok(SmtpState2::HELO(res_helo?)))
             },
+            
             (SmtpState2::EHLO(ehlo), Some(SmtpState::MAIL)) => {
                 ehlo.mail_from(&mut self.conn_writer, cmd)
                     .await
                     .and_then(|mail| Ok(SmtpState2::MAIL(mail)))
+                    .or_else(|res_ehlo| Ok(SmtpState2::EHLO(res_ehlo?)))
             },
+            
             (SmtpState2::MAIL(mail), Some(SmtpState::RCPT)) => {
                 RcptState::new(&mut self.conn_writer, cmd, mail)
                     .await
                     .and_then(|rcpt| Ok(SmtpState2::RCPT(rcpt)))
+                    .or_else(|res_mailfrom| Ok(SmtpState2::MAIL(res_mailfrom?)))
             },
+            
             (SmtpState2::RCPT(mut rcpt), Some(SmtpState::RCPT)) => {
-                rcpt.add_rcpt(&mut self.conn_writer, cmd)
-                    .await
-                    .and(Ok(SmtpState2::RCPT(rcpt)))
+                Ok(match rcpt.add_rcpt(&mut self.conn_writer, cmd).await {
+                    Ok(()) => Ok(SmtpState2::RCPT(rcpt)),
+                    Err(Ok(rcpt_err)) => {
+                        rcpt_err.respond(&mut self.conn_writer).await?;
+                        Ok(SmtpState2::RCPT(rcpt))
+                    },
+                    Err(Err(io_err)) => Err(io_err)
+                }?)
             },
+            
             (SmtpState2::RCPT(rcpt), Some(SmtpState::DATA)) => {
                 DataState::new(&mut self.conn_writer, self.user_db.clone(), rcpt)
                     .await
                     .and_then(|state| Ok(SmtpState2::DATA(state)))
             },
+            
             (SmtpState2::DATA(state), _) => {
                 state.receive_data(&mut self.conn_writer, &mut self.storage, cmd).await
             },
+            
             (SmtpState2::DATACOMPLETE(state), Some(SmtpState::QUIT)) => {
                 state.quit(&mut self.conn_writer).await;
                 Ok(SmtpState2::QUIT(state))
             },
+            
             (_state, _verb) => {
                 debug!("Bad sequence: {:?}", self.state_history);
-                Ok(self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
+                self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
                     .and(Ok(SmtpState2::CANCELLED))
-                    .or_else(|err| Err(err.io_error.unwrap()))?)
+                    .or_else(|io_err| Err(io_err)?)
             }
         }
             // todo handle error
@@ -703,9 +819,29 @@ impl<T: IO> Smtp2<T> {
             _ => Ok((self, StateKind::CONTINUE))
         }
     }
+    
+    /**
+    Converts an AuthResult into the SmtpState that it results in.
+    On auth success, fills the returned Option<User> with the authenticated user.
+    */
+    fn transition_auth_result(auth_result: AuthResult) -> Result<(SmtpState2, Option<User>), io::Error> {
+        Ok(match auth_result {
+            AuthResult::Unfinished(auth) => (SmtpState2::AUTH(auth), None),
+            AuthResult::Authorized((ehlo, user)) => {
+                (SmtpState2::EHLO(ehlo), Some(user))
+            },
+            AuthResult::BadMechanism(ehlo) => (SmtpState2::EHLO(ehlo), None),
+            AuthResult::BadCredentials(ehlo) => (SmtpState2::EHLO(ehlo), None)
+        })
+    }
 
     #[cfg(test)]
-    pub(crate) async fn new_testbed (testbed: SmtpTest, config: Config, user_db: UserDBMtx, storage: Storage) -> Result<Self, SmtpError> {
+    pub(crate) async fn new_testbed (
+        testbed: SmtpTest,
+        config: Config,
+        user_db: UserDBMtx,
+        storage: Storage
+    ) -> Result<Self, io::Error> {
         let cw = ConnectionWriter {
             conn: None,
             conn_testbed: Some(testbed),
