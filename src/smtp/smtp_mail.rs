@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
-use log::{debug};
 
 #[derive(Debug)]
 pub(crate) struct InvalidMailAddress {}
@@ -42,18 +41,6 @@ pub(crate) struct Envelope {
 }
 
 impl Envelope {
-    pub(crate) fn new2() -> Envelope {
-        let r = Envelope {
-            sender: String::new(),
-            recipients: Vec::new(),
-            body: "".to_string(),
-            uuid: Uuid::new_v4(),
-        };
-        
-        debug!("New mail with uuid {}", r.uuid);
-        
-        r
-    }
     
     pub(crate) fn new(sender: String, recipients: Vec<MailAddress>, body: String) -> Self {
         Self {

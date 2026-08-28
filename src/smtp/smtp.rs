@@ -15,7 +15,7 @@ use crate::maildir::Storage;
 use crate::user::User;
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
-pub(crate) enum SmtpState {
+pub(crate) enum CommandVerb {
     INIT,
     HELO,
     EHLO,
@@ -36,7 +36,7 @@ pub enum StateKind {
 
 #[derive(Clone)]
 pub(crate) struct Command {
-    pub(crate) verb: Option<SmtpState>,
+    pub(crate) verb: Option<CommandVerb>,
     pub(crate) message: String,
 }
 
@@ -54,7 +54,7 @@ impl Command {
     fn new(s: String) -> Command {
         let mut split = s.trim().split(" ");
         let verb = match split.next() {
-            Some(first) => first.parse::<SmtpState>().ok(),
+            Some(first) => first.parse::<CommandVerb>().ok(),
             None => None
         };
 
@@ -152,7 +152,7 @@ impl HeloState {
         writer: &mut ConnectionWriter<T>,
         cmd: Command
     ) -> Result<MailFromState, Result<HeloState, io::Error>> {
-        match MailFromState::mail_from(writer, cmd, SmtpState::HELO).await {
+        match MailFromState::mail_from(writer, cmd, CommandVerb::HELO).await {
             Ok(mail) => Ok(mail),
             Err(Ok(bad_cmd)) => {
                 bad_cmd.respond(writer).await
@@ -186,7 +186,7 @@ impl EhloState {
         writer: &mut ConnectionWriter<T>,
         cmd: Command
     ) -> Result<MailFromState, Result<EhloState, io::Error>> {
-        match MailFromState::mail_from(writer, cmd, SmtpState::EHLO).await {
+        match MailFromState::mail_from(writer, cmd, CommandVerb::EHLO).await {
             Ok(mail) => Ok(mail),
             Err(Ok(bad_cmd)) => {
                 bad_cmd.respond(writer).await
@@ -352,7 +352,7 @@ impl MailFromState {
     async fn mail_from<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
-        _old_state: SmtpState
+        _old_state: CommandVerb
     ) -> Result<Self, Result<BadCommandError, io::Error>> {
         debug!("Handling MAIL: {}", cmd);
         let sender = parse_address_message_by_re(
@@ -490,7 +490,7 @@ impl DataState {
         writer: &mut ConnectionWriter<T>,
         storage: &mut Storage,
         cmd: Command) 
-    -> Result<SmtpState2, io::Error> {
+    -> Result<SmtpState, io::Error> {
         debug!("Mail!: {}", cmd.message);
         let mail_end = self.decode_transparency(cmd.message);
         match mail_end {
@@ -500,15 +500,15 @@ impl DataState {
                 match Self::deliver_mail(storage, self.user_db.clone(), &mail).await {
                     Ok(()) => {
                         writer.send("250 OK\r\n".to_string()).await?;
-                        Ok(SmtpState2::DATACOMPLETE(CompleteState::new(mail)))
+                        Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
                     },
                     Err(_) => {
                         Self::delivery_error_response(writer).await?;
-                        Ok(SmtpState2::RCPT(mail.into()))
+                        Ok(SmtpState::RCPT(mail.into()))
                     }
                 }
             },
-            false => Ok(SmtpState2::DATA(self))
+            false => Ok(SmtpState::DATA(self))
         }
     }
 
@@ -607,14 +607,6 @@ impl DataState {
 
         mail_is_complete
     }
-
-    #[cfg(test)]
-    pub(crate) fn is_finished(&self) -> bool { self.body_finished }
-    
-    #[cfg(test)]
-    pub(crate) fn mail_body(&self) -> String {
-        self.mail_body.clone()
-    }
 }
 
 struct CompleteState {
@@ -639,7 +631,7 @@ impl CompleteState {
 }
 
 #[derive(IntoStaticStr)]
-enum SmtpState2 {
+enum SmtpState {
     // todo rename enum
     INIT(InitState),
     HELO(HeloState),
@@ -653,7 +645,7 @@ enum SmtpState2 {
     CANCELLED,
 }
 
-impl Debug for SmtpState2 {
+impl Debug for SmtpState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s: &str = self.into();
         write!(f, "{}", s)
@@ -664,8 +656,8 @@ pub(crate) struct Smtp2<T: IO> {
     // todo rename struct
     conn_writer: ConnectionWriter<T>,
     config: Config,
-    state: SmtpState2,
-    state_history: Vec<SmtpState2>,
+    state: SmtpState,
+    state_history: Vec<SmtpState>,
     user_db: UserDBMtx,
     storage: Storage,
     authorized: Option<User>,
@@ -683,7 +675,7 @@ impl<T: IO> Smtp2<T> {
         Ok(Self {
             conn_writer: cw,
             config,
-            state: SmtpState2::INIT(state),
+            state: SmtpState::INIT(state),
             state_history: vec![],
             user_db,
             storage,
@@ -704,10 +696,6 @@ impl<T: IO> Smtp2<T> {
         
         Self::build(cw, config, user_db, storage).await
     }
-    
-    async fn send(&mut self, s: String) -> Result<(), io::Error> {
-        self.conn_writer.send(s).await
-    }
 
     pub(crate) fn connhandler_mut(&mut self) -> &mut ConnectionHandler<T> {
         let r = &mut self.conn_writer.conn;
@@ -724,19 +712,19 @@ impl<T: IO> Smtp2<T> {
         
         self.state = match (self.state, &cmd.verb) {
             
-            (SmtpState2::INIT(old_state), Some(SmtpState::HELO)) => {
+            (SmtpState::INIT(old_state), Some(CommandVerb::HELO)) => {
                 HeloState::respond(&mut self.conn_writer, old_state)
                     .await
-                    .and_then(|helo| Ok(SmtpState2::HELO(helo)))
+                    .and_then(|helo| Ok(SmtpState::HELO(helo)))
             },
             
-            (SmtpState2::INIT(old_state), Some(SmtpState::EHLO)) => {
+            (SmtpState::INIT(old_state), Some(CommandVerb::EHLO)) => {
                 EhloState::respond(&mut self.conn_writer, &self.config, old_state)
                     .await
-                    .and_then(|ehlo| Ok(SmtpState2::EHLO(ehlo)))
+                    .and_then(|ehlo| Ok(SmtpState::EHLO(ehlo)))
             },
             
-            (SmtpState2::EHLO(ehlo), Some(SmtpState::AUTH)) => {
+            (SmtpState::EHLO(ehlo), Some(CommandVerb::AUTH)) => {
                 let auth = AuthState::init_sasl(
                     &mut self.conn_writer, cmd, self.user_db.clone(), ehlo
                 ).await?;
@@ -746,7 +734,7 @@ impl<T: IO> Smtp2<T> {
                 Ok(state)
             },
             
-            (SmtpState2::AUTH(auth), _) => {
+            (SmtpState::AUTH(auth), _) => {
                 let auth = auth.handle_auth_step(&mut self.conn_writer, cmd).await?;
                 auth.respond(&mut self.conn_writer).await?;
                 let (state, user) = Self::transition_auth_result(auth)?;
@@ -754,64 +742,64 @@ impl<T: IO> Smtp2<T> {
                 Ok(state)
             }
             
-            (SmtpState2::HELO(helo), Some(SmtpState::MAIL)) => {
+            (SmtpState::HELO(helo), Some(CommandVerb::MAIL)) => {
                 helo.mail_from(&mut self.conn_writer, cmd)
                     .await
-                    .and_then(|mail| Ok(SmtpState2::MAIL(mail)))
-                    .or_else(|res_helo| Ok(SmtpState2::HELO(res_helo?)))
+                    .and_then(|mail| Ok(SmtpState::MAIL(mail)))
+                    .or_else(|res_helo| Ok(SmtpState::HELO(res_helo?)))
             },
             
-            (SmtpState2::EHLO(ehlo), Some(SmtpState::MAIL)) => {
+            (SmtpState::EHLO(ehlo), Some(CommandVerb::MAIL)) => {
                 ehlo.mail_from(&mut self.conn_writer, cmd)
                     .await
-                    .and_then(|mail| Ok(SmtpState2::MAIL(mail)))
-                    .or_else(|res_ehlo| Ok(SmtpState2::EHLO(res_ehlo?)))
+                    .and_then(|mail| Ok(SmtpState::MAIL(mail)))
+                    .or_else(|res_ehlo| Ok(SmtpState::EHLO(res_ehlo?)))
             },
             
-            (SmtpState2::MAIL(mail), Some(SmtpState::RCPT)) => {
+            (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {
                 RcptState::new(&mut self.conn_writer, cmd, mail)
                     .await
-                    .and_then(|rcpt| Ok(SmtpState2::RCPT(rcpt)))
-                    .or_else(|res_mailfrom| Ok(SmtpState2::MAIL(res_mailfrom?)))
+                    .and_then(|rcpt| Ok(SmtpState::RCPT(rcpt)))
+                    .or_else(|res_mailfrom| Ok(SmtpState::MAIL(res_mailfrom?)))
             },
             
-            (SmtpState2::RCPT(mut rcpt), Some(SmtpState::RCPT)) => {
+            (SmtpState::RCPT(mut rcpt), Some(CommandVerb::RCPT)) => {
                 Ok(match rcpt.add_rcpt(&mut self.conn_writer, cmd).await {
-                    Ok(()) => Ok(SmtpState2::RCPT(rcpt)),
+                    Ok(()) => Ok(SmtpState::RCPT(rcpt)),
                     Err(Ok(rcpt_err)) => {
                         rcpt_err.respond(&mut self.conn_writer).await?;
-                        Ok(SmtpState2::RCPT(rcpt))
+                        Ok(SmtpState::RCPT(rcpt))
                     },
                     Err(Err(io_err)) => Err(io_err)
                 }?)
             },
             
-            (SmtpState2::RCPT(rcpt), Some(SmtpState::DATA)) => {
+            (SmtpState::RCPT(rcpt), Some(CommandVerb::DATA)) => {
                 DataState::new(&mut self.conn_writer, self.user_db.clone(), rcpt)
                     .await
-                    .and_then(|state| Ok(SmtpState2::DATA(state)))
+                    .and_then(|state| Ok(SmtpState::DATA(state)))
             },
             
-            (SmtpState2::DATA(state), _) => {
+            (SmtpState::DATA(state), _) => {
                 state.receive_data(&mut self.conn_writer, &mut self.storage, cmd).await
             },
             
-            (SmtpState2::DATACOMPLETE(state), Some(SmtpState::QUIT)) => {
+            (SmtpState::DATACOMPLETE(state), Some(CommandVerb::QUIT)) => {
                 state.quit(&mut self.conn_writer).await;
-                Ok(SmtpState2::QUIT(state))
+                Ok(SmtpState::QUIT(state))
             },
             
             (_state, Some(_verb)) => {
                 debug!("Bad sequence: {:?}", self.state_history);
                 self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
-                    .and(Ok(SmtpState2::CANCELLED))
+                    .and(Ok(SmtpState::CANCELLED))
                     .or_else(|io_err| Err(io_err)?)
             },
 
             (_state, None) => {
                 debug!("Unrecognized command");
                 self.conn_writer.send("500 Unrecognized command\r\n".to_string()).await
-                    .and(Ok(SmtpState2::CANCELLED))
+                    .and(Ok(SmtpState::CANCELLED))
                     .or_else(|io_err| Err(io_err)?)
             }
         }
@@ -819,7 +807,7 @@ impl<T: IO> Smtp2<T> {
             .unwrap();
         
         match self.state {
-            SmtpState2::QUIT(_) | SmtpState2::CANCELLED => Ok((self, StateKind::QUIT)),
+            SmtpState::QUIT(_) | SmtpState::CANCELLED => Ok((self, StateKind::QUIT)),
             _ => Ok((self, StateKind::CONTINUE))
         }
     }
@@ -828,14 +816,14 @@ impl<T: IO> Smtp2<T> {
     Converts an AuthResult into the SmtpState that it results in.
     On auth success, fills the returned Option<User> with the authenticated user.
     */
-    fn transition_auth_result(auth_result: AuthResult) -> Result<(SmtpState2, Option<User>), io::Error> {
+    fn transition_auth_result(auth_result: AuthResult) -> Result<(SmtpState, Option<User>), io::Error> {
         Ok(match auth_result {
-            AuthResult::Unfinished(auth) => (SmtpState2::AUTH(auth), None),
+            AuthResult::Unfinished(auth) => (SmtpState::AUTH(auth), None),
             AuthResult::Authorized((ehlo, user)) => {
-                (SmtpState2::EHLO(ehlo), Some(user))
+                (SmtpState::EHLO(ehlo), Some(user))
             },
-            AuthResult::BadMechanism(ehlo) => (SmtpState2::EHLO(ehlo), None),
-            AuthResult::BadCredentials(ehlo) => (SmtpState2::EHLO(ehlo), None)
+            AuthResult::BadMechanism(ehlo) => (SmtpState::EHLO(ehlo), None),
+            AuthResult::BadCredentials(ehlo) => (SmtpState::EHLO(ehlo), None)
         })
     }
 
@@ -852,11 +840,6 @@ impl<T: IO> Smtp2<T> {
         };
 
         Self::build(cw, config, user_db, storage).await
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get_testbed(&mut self) -> &SmtpTest {
-        self.conn_writer.conn_testbed.as_mut().unwrap()
     }
 
     #[cfg(test)]
@@ -877,8 +860,8 @@ impl<T: IO> Smtp2<T> {
     #[cfg(test)]
     pub(crate) fn mail(&self) -> &Envelope {
         match &self.state {
-            SmtpState2::DATACOMPLETE(complete)
-            | SmtpState2::QUIT(complete) => {
+            SmtpState::DATACOMPLETE(complete)
+            | SmtpState::QUIT(complete) => {
                 complete.mail()
             },
             _ => panic!("Incorrect smtp state: {:?}", self.state)
@@ -888,10 +871,10 @@ impl<T: IO> Smtp2<T> {
     #[cfg(test)]
     pub(crate) fn recipients(&self) -> &Vec<MailAddress> {
         match &self.state {
-            SmtpState2::RCPT(rcptstate) => &rcptstate.recipients,
-            SmtpState2::DATA(datastate) => &datastate.recipients,
-            SmtpState2::DATACOMPLETE(complete)
-            | SmtpState2::QUIT(complete) => {
+            SmtpState::RCPT(rcptstate) => &rcptstate.recipients,
+            SmtpState::DATA(datastate) => &datastate.recipients,
+            SmtpState::DATACOMPLETE(complete)
+            | SmtpState::QUIT(complete) => {
                 &complete.mail().recipients
             },
             _ => panic!("Incorrect smtp state: {:?}", self.state)
