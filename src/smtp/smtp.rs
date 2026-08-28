@@ -801,9 +801,16 @@ impl<T: IO> Smtp2<T> {
                 Ok(SmtpState2::QUIT(state))
             },
             
-            (_state, _verb) => {
+            (_state, Some(_verb)) => {
                 debug!("Bad sequence: {:?}", self.state_history);
                 self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
+                    .and(Ok(SmtpState2::CANCELLED))
+                    .or_else(|io_err| Err(io_err)?)
+            },
+
+            (_state, None) => {
+                debug!("Unrecognized command");
+                self.conn_writer.send("500 Unrecognized command\r\n".to_string()).await
                     .and(Ok(SmtpState2::CANCELLED))
                     .or_else(|io_err| Err(io_err)?)
             }
@@ -873,6 +880,19 @@ impl<T: IO> Smtp2<T> {
             SmtpState2::DATACOMPLETE(complete)
             | SmtpState2::QUIT(complete) => {
                 complete.mail()
+            },
+            _ => panic!("Incorrect smtp state: {:?}", self.state)
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn recipients(&self) -> &Vec<MailAddress> {
+        match &self.state {
+            SmtpState2::RCPT(rcptstate) => &rcptstate.recipients,
+            SmtpState2::DATA(datastate) => &datastate.recipients,
+            SmtpState2::DATACOMPLETE(complete)
+            | SmtpState2::QUIT(complete) => {
+                &complete.mail().recipients
             },
             _ => panic!("Incorrect smtp state: {:?}", self.state)
         }

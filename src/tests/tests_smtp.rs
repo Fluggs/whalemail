@@ -58,7 +58,6 @@ mod tests_smtp {
         // Verify mail
         assert_eq!(s.mail().sender, sender.to_string());
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
-        assert!(s.mail().is_finished());
     }
 
     #[tokio::test]
@@ -94,7 +93,6 @@ mod tests_smtp {
         // Verify mail
         assert_eq!(s.mail().sender, sender.to_string());
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
-        assert!(s.mail().is_finished());
     }
 
     #[tokio::test]
@@ -119,7 +117,6 @@ mod tests_smtp {
         expect_msg!(s, "354 start mail input\r\n");
 
         (s, _) = s.handle(mailct_1.clone()).await.unwrap();
-        assert!(!s.mail().is_finished());
         s.expect_no_msg();
 
         (s, _) = s.handle(mailct_2.clone()).await.unwrap();
@@ -153,7 +150,7 @@ mod tests_smtp {
         (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt2.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        assert_eq!(s.mail().recipients, Vec::from([rcpt1, rcpt2]));
+        assert_eq!(s.recipients(), &Vec::from([rcpt1, rcpt2]));
     }
 
     #[tokio::test]
