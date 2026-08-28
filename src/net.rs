@@ -6,8 +6,7 @@ use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
-use crate::smtp::smtp::{Smtp, Smtp2, StateKind};
-use crate::smtp::smtp_error::SmtpError;
+use crate::smtp::smtp::{Smtp2, StateKind};
 use crate::maildir::Storage;
 
 pub trait IO: AsyncRead + AsyncWrite + Unpin {}
@@ -39,8 +38,7 @@ impl<T: IO> ConnectionHandler<T> {
             user_db,
             Storage::new(hostname, maildir_config)
         )
-            .await
-            .or_else(|error: SmtpError| Err(error.io_error.unwrap()))?;
+            .await?;
         
         loop {
 

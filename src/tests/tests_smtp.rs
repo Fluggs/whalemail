@@ -56,7 +56,7 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender, Some(sender.to_string()));
+        assert_eq!(s.mail().sender, sender.to_string());
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
         assert!(s.mail().is_finished());
     }
@@ -92,7 +92,7 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender, Some(sender.to_string()));
+        assert_eq!(s.mail().sender, sender.to_string());
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
         assert!(s.mail().is_finished());
     }
