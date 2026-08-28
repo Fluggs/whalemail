@@ -211,7 +211,7 @@ enum AuthResult {
 }
 
 impl AuthResult {
-    async fn respond<T: IO>(self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+    async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
         match self {
             AuthResult::Unfinished(_) => Ok(()),
             AuthResult::Authorized(_) => writer.send(
@@ -740,6 +740,7 @@ impl<T: IO> Smtp2<T> {
                 let auth = AuthState::init_sasl(
                     &mut self.conn_writer, cmd, self.user_db.clone(), ehlo
                 ).await?;
+                auth.respond(&mut self.conn_writer).await?;
                 let (state, user) = Self::transition_auth_result(auth)?;
                 self.authorized = user;
                 Ok(state)
@@ -747,6 +748,7 @@ impl<T: IO> Smtp2<T> {
             
             (SmtpState2::AUTH(auth), _) => {
                 let auth = auth.handle_auth_step(&mut self.conn_writer, cmd).await?;
+                auth.respond(&mut self.conn_writer).await?;
                 let (state, user) = Self::transition_auth_result(auth)?;
                 self.authorized = user;
                 Ok(state)
@@ -882,8 +884,9 @@ impl<T: IO> Smtp2<T> {
     }
     
     #[cfg(test)]
-    pub(crate) fn decode_transparency(&self, s: String) -> bool {
+    pub(crate) fn decode_transparency(&self, s: String) -> (bool, String) {
         let mut data = DataState::mock(self.user_db.clone());
-        data.decode_transparency(s)
+        let r = data.decode_transparency(s);
+        (r, data.mail_body)
     }
 }

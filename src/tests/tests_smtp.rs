@@ -178,16 +178,20 @@ mod tests_smtp {
     async fn test_dtp_empty_s() {
         let s: Smtp2<TcpStream> = test_setup().await;
         let expected = "".to_string();
-        assert_eq!(s.decode_transparency(expected.clone()), false);
-        assert_eq!(s.mail().body, expected);
+
+        let (result, mail_body) = s.decode_transparency(expected.clone());
+        assert_eq!(result, false);
+        assert_eq!(mail_body, expected);
     }
 
     #[tokio::test]
     async fn test_dtp_simple_mail() {
-        let mut smtp: Smtp2<TcpStream> = test_setup().await;
+        let mut s: Smtp2<TcpStream> = test_setup().await;
         let expected = "blub\r\n.\r\n".to_string();
-        assert_eq!(smtp.decode_transparency(expected.clone()), true);
-        assert_eq!(smtp.mail().body, expected);
+        
+        let (result, mail_body) = s.decode_transparency(expected.clone());
+        assert_eq!(result, true);
+        assert_eq!(mail_body, expected);
     }
 
     #[tokio::test]
@@ -197,37 +201,41 @@ mod tests_smtp {
         We interpret this as the end of mail, so functionally an empty mail.
      */
     async fn test_dtp_first_line_transparency() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let input = ".\r\n.\r\n".to_string();
         let expected = ".\r\n".to_string();
-        assert_eq!(s.decode_transparency(input), true);
-        assert_eq!(s.mail().body, expected);
+        let (result, mail_body) = s.decode_transparency(input);
+        assert_eq!(result, true);
+        assert_eq!(mail_body, expected);
     }
 
     #[tokio::test]
     async fn test_dtp_multi_line_transparency() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let input = ".abc\r\n.bcdef\r\ng\r\n.\r\n".to_string();
         let expected = "abc\r\nbcdef\r\ng\r\n.\r\n".to_string();
-        assert_eq!(s.decode_transparency(input), true);
-        assert_eq!(s.mail().body, expected);
+        let (result, mail_body) = s.decode_transparency(input);
+        assert_eq!(result, true);
+        assert_eq!(mail_body, expected);
     }
 
     #[tokio::test]
     async fn test_dtp_double_period_transparency() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let input = "..a\r\n..bc\r\n.\r\n".to_string();
         let expected = ".a\r\n.bc\r\n.\r\n".to_string();
-        assert_eq!(s.decode_transparency(input), true);
-        assert_eq!(s.mail().body, expected);
+        let (result, mail_body) = s.decode_transparency(input);
+        assert_eq!(result, true);
+        assert_eq!(mail_body, expected);
     }
 
     #[tokio::test]
     async fn test_dtp_multi_line_transparency_no_end() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let input = ".abc\r\n.bcdef\r\n".to_string();
         let expected = "abc\r\nbcdef\r\n".to_string();
-        assert_eq!(s.decode_transparency(input), false);
-        assert_eq!(s.mail().body, expected);
+        let (result, mail_body) = s.decode_transparency(input);
+        assert_eq!(result, false);
+        assert_eq!(mail_body, expected);
     }
 }
