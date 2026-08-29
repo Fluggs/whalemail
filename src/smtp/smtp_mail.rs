@@ -6,6 +6,7 @@ pub(crate) struct InvalidMailAddress {}
 
 #[derive(Debug)]
 #[derive(PartialEq)]
+#[derive(Clone)]
 pub(crate) struct MailAddress {
     pub(crate) address: String,
     pub(crate) local_part: String,
@@ -24,6 +25,15 @@ impl MailAddress {
             _ => Err(InvalidMailAddress { })
         }
     }
+    
+    #[cfg(test)]
+    pub(crate) fn mock() -> MailAddress {
+        MailAddress {
+            address: String::new(),
+            local_part: String::new(),
+            domain: String::new(),
+        }
+    }
 }
 
 impl Display for MailAddress {
@@ -34,7 +44,7 @@ impl Display for MailAddress {
 
 pub(crate) struct Envelope {
     // todo convert to MailAddress
-    pub(crate) sender: String,
+    pub(crate) sender: MailAddress,
     pub(crate) recipients: Vec<MailAddress>,
     pub(crate) body: String,
     pub(crate) uuid: Uuid,
@@ -42,7 +52,7 @@ pub(crate) struct Envelope {
 
 impl Envelope {
     
-    pub(crate) fn new(sender: String, recipients: Vec<MailAddress>, body: String) -> Self {
+    pub(crate) fn new(sender: MailAddress, recipients: Vec<MailAddress>, body: String) -> Self {
         Self {
             sender,
             recipients,

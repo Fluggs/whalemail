@@ -14,6 +14,9 @@ use crate::smtp::smtp_mail::{Envelope, MailAddress};
 use crate::maildir::Storage;
 use crate::user::User;
 
+static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
+static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
+
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum CommandVerb {
     INIT,
@@ -146,22 +149,6 @@ impl HeloState {
         writer.send("250 OK\r\n".to_string()).await?;
         Ok(Self {})
     }
-    
-    async fn mail_from<T: IO>(
-        self,
-        writer: &mut ConnectionWriter<T>,
-        cmd: Command
-    ) -> Result<MailFromState, Result<HeloState, io::Error>> {
-        match MailFromState::mail_from(writer, cmd, CommandVerb::HELO).await {
-            Ok(mail) => Ok(mail),
-            Err(Ok(bad_cmd)) => {
-                bad_cmd.respond(writer).await
-                    .or_else(|ioerr| Err(Err(ioerr)))?;
-                Err(Ok(self))
-            },
-            Err(Err(io_err)) => Err(Err(io_err))
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -179,22 +166,6 @@ impl EhloState {
     async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config, _from: InitState) -> Result<Self, io::Error> {
         writer.send(EhloState::build_ehlo_response(config)).await?;
         Ok(Self {})
-    }
-
-    async fn mail_from<T: IO>(
-        self,
-        writer: &mut ConnectionWriter<T>,
-        cmd: Command
-    ) -> Result<MailFromState, Result<EhloState, io::Error>> {
-        match MailFromState::mail_from(writer, cmd, CommandVerb::EHLO).await {
-            Ok(mail) => Ok(mail),
-            Err(Ok(bad_cmd)) => {
-                bad_cmd.respond(writer).await
-                    .or_else(|ioerr| Err(Err(ioerr)))?;
-                Err(Ok(self))
-            },
-            Err(Err(io_err)) => Err(Err(io_err))
-        }
     }
 }
 
@@ -345,25 +316,39 @@ fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, BadCo
 }
 
 struct MailFromState {
-    sender: String,
+    sender: MailAddress,
 }
 
 impl MailFromState {
     async fn mail_from<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
-        _old_state: CommandVerb
-    ) -> Result<Self, Result<BadCommandError, io::Error>> {
+        from_state: SmtpState
+    ) -> Result<SmtpState, io::Error> {
         debug!("Handling MAIL: {}", cmd);
-        let sender = parse_address_message_by_re(
+        
+        let sender = match parse_address_message_by_re(
             Regex::new(r"^MAIL FROM:<([^>]+)>\r\n$").unwrap(), &cmd
-        )
-            .or_else(|bad_cmd| Err(Ok(bad_cmd)))?;
-        writer.send("250 OK\r\n".to_string()).await
-            .or_else(|ioerr| Err(Err(ioerr)))?;
-        Ok(Self {
+        ) {
+            Ok(s) => s,
+            Err(bad_cmd) => {
+                bad_cmd.respond(writer).await?;
+                return Ok(from_state);
+            }
+        };
+        
+        let sender = match MailAddress::new(sender.as_str()) {
+            Ok(sender) => sender,
+            Err(_) => {
+                writer.send(MSG_INVALID_HOST.to_string()).await?;
+                return Ok(from_state);
+            }
+        };
+        
+        writer.send("250 OK\r\n".to_string()).await?;
+        Ok(SmtpState::MAIL(Self {
             sender,
-        })
+        }))
     }
 }
 
@@ -383,7 +368,7 @@ impl RcptError {
 }
 
 struct RcptState {
-    sender: String,
+    sender: MailAddress,
     recipients: Vec<MailAddress>
 }
 
@@ -446,7 +431,7 @@ impl From<Envelope> for RcptState {
 
 struct DataState {
     user_db: UserDBMtx,
-    sender: String,
+    sender: MailAddress,
     recipients: Vec<MailAddress>,
     mail_body: String,
     body_finished: bool,
@@ -456,14 +441,14 @@ impl DataState {
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
         user_db: UserDBMtx,
-        old_state: RcptState)
+        from_state: RcptState)
         -> Result<Self, io::Error> {
         writer.send("354 start mail input\r\n".to_string()).await?;
         
         Ok(Self {
             user_db,
-            sender: old_state.sender,
-            recipients: old_state.recipients,
+            sender: from_state.sender,
+            recipients: from_state.recipients,
             mail_body: String::new(),
             body_finished: false,
         })
@@ -473,7 +458,7 @@ impl DataState {
     fn mock(user_db: UserDBMtx) -> Self {
         Self {
             user_db,
-            sender: String::new(),
+            sender: MailAddress::mock(),
             recipients: Vec::new(),
             mail_body: String::new(),
             body_finished: false,
@@ -742,17 +727,13 @@ impl<T: IO> Smtp2<T> {
             }
             
             (SmtpState::HELO(helo), Some(CommandVerb::MAIL)) => {
-                helo.mail_from(&mut self.conn_writer, cmd)
-                    .await
-                    .and_then(|mail| Ok(SmtpState::MAIL(mail)))
-                    .or_else(|res_helo| Ok::<SmtpState, io::Error>(SmtpState::HELO(res_helo?)))?
+                MailFromState::mail_from(&mut self.conn_writer, cmd, SmtpState::HELO(helo))
+                    .await?
             },
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::MAIL)) => {
-                ehlo.mail_from(&mut self.conn_writer, cmd)
-                    .await
-                    .and_then(|mail| Ok(SmtpState::MAIL(mail)))
-                    .or_else(|res_ehlo| Ok::<SmtpState, io::Error>(SmtpState::EHLO(res_ehlo?)))?
+                MailFromState::mail_from(&mut self.conn_writer, cmd, SmtpState::EHLO(ehlo))
+                    .await?
             },
             
             (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {

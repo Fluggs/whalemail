@@ -28,6 +28,7 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_helo_mail() {
         let sender = "sender@test.org";
+        let sender_addr = MailAddress::new(sender).unwrap();
         let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
         let mut s: Smtp2<TcpStream> = test_setup().await;
@@ -56,13 +57,14 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender, sender.to_string());
+        assert_eq!(s.mail().sender, sender_addr);
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
     }
 
     #[tokio::test]
     async fn test_ehlo_mail() {
         let sender = "sender@test.org";
+        let sender_addr = MailAddress::new(sender).unwrap();
         let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
         let mut s: Smtp2<TcpStream> = test_setup().await;
@@ -91,7 +93,7 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender, sender.to_string());
+        assert_eq!(s.mail().sender, sender_addr);
         assert_eq!(s.mail().recipients, Vec::from([rcpt]));
     }
 
