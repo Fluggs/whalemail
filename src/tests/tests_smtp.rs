@@ -167,6 +167,33 @@ mod tests_smtp {
         (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
         expect_msg!(s, "503 Bad sequence\r\n");
     }
+    
+    #[tokio::test]
+    async fn test_mailfrom_invalid_mailbox() {
+        let mut s: Smtp2<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<fsdfdsf>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "450 Invalid host\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_rcpt_invalid_mailbox() {
+        let mut s: Smtp2<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+
+        (s, _) = s.handle("RCPT TO:<sadfsd>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "450 Invalid mailbox\r\n");
+    }
 
     /*
     Tests for decode_transparency

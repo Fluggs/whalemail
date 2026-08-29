@@ -377,7 +377,7 @@ impl RcptError {
         match self {
             RcptError::BadCommand => BadCommandError::write_msg(writer).await,
             // todo find correct message
-            RcptError::InvalidMailbox => writer.send("invalid mailbox".to_string()).await
+            RcptError::InvalidMailbox => writer.send("450 Invalid mailbox\r\n".to_string()).await
         }
     }
 }
