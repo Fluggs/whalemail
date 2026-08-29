@@ -197,6 +197,32 @@ mod tests_smtp {
         expect_msg!(s, "450 Invalid mailbox\r\n");
     }
 
+    #[tokio::test]
+    async fn test_mail_delivery_error() {
+        let sender = "sender@test.org";
+        let sender_addr = MailAddress::new(sender).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
+
+        let mut s: Smtp2<TcpStream> = test_setup().await;
+
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+
+        (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+
+        (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "354 start mail input\r\n");
+
+        (s, _) = s.handle("<mailblob> blob blob\r\n.\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "450 Requested mail action not taken: mailbox unavailable\r\n");
+    }
+
     /*
     Tests for decode_transparency
      */

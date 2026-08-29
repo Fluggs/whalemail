@@ -16,6 +16,7 @@ use crate::user::User;
 
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
 static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
+static MSG_MAILBOX_UNAVAILABLE: &str = "450 Requested mail action not taken: mailbox unavailable\r\n";
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum CommandVerb {
@@ -361,8 +362,7 @@ impl RcptError {
     async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
         match self {
             RcptError::BadCommand => BadCommandError::write_msg(writer).await,
-            // todo find correct message
-            RcptError::InvalidMailbox => writer.send("450 Invalid mailbox\r\n".to_string()).await
+            RcptError::InvalidMailbox => writer.send(MSG_INVALID_MAILBOX.to_string()).await
         }
     }
 }
@@ -466,8 +466,7 @@ impl DataState {
     }
     
     async fn delivery_error_response<T: IO>(writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
-        //todo find correct error message
-        writer.send("Delivery error".to_string()).await
+        writer.send(MSG_MAILBOX_UNAVAILABLE.to_string()).await
     }
     
     async fn receive_data<T: IO>(
@@ -617,7 +616,6 @@ impl CompleteState {
 
 #[derive(IntoStaticStr)]
 enum SmtpState {
-    // todo rename enum
     INIT(InitState),
     HELO(HeloState),
     EHLO(EhloState),
