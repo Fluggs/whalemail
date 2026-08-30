@@ -3,7 +3,7 @@ use log::{debug, error};
 use tokio_postgres::{Client, NoTls};
 use crate::auth::auth::Authorized;
 use crate::config::UserDBConfig;
-use crate::smtp::smtp_mail::MailAddress;
+use crate::smtp::envelope::MailAddress;
 use crate::userdb::userdb::{Error, UserDBMtx, UserDB};
 
 pub(crate) struct Postgres {

@@ -2,7 +2,7 @@ use tokio::fs;
 use std::{io};
 use std::time::{Instant, SystemTime};
 use camino::Utf8PathBuf;
-use crate::smtp::smtp_mail::{Envelope, MailAddress};
+use crate::smtp::envelope::{Envelope, MailAddress};
 use log::{debug, warn};
 use crate::config::MaildirConfig;
 

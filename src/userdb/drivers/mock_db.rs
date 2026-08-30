@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use crate::auth::auth::Authorized;
-use crate::smtp::smtp_mail::MailAddress;
+use crate::smtp::envelope::MailAddress;
 use crate::userdb::userdb::{Error, UserDB, UserDBMtx};
 
 pub(crate) struct MockDB {

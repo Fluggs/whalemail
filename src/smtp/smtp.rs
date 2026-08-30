@@ -6,11 +6,12 @@ use log::{debug};
 use regex::Regex;
 use crate::config::Config;
 use crate::auth::auth;
+use crate::auth::auth::Authorized;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::smtp_error::DeliveryError;
-use crate::smtp::smtp_mail::{Envelope, MailAddress};
+use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::maildir::Storage;
 use crate::user::User;
 
@@ -18,6 +19,7 @@ static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
 static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
 static MSG_MAILBOX_UNAVAILABLE: &str = "450 Requested mail action not taken: mailbox unavailable\r\n";
 static MSG_BAD_COMMAND: &str = "500 Unrecognized command\r\n";
+static MSG_UNAUTHORIZED: &str = "530 5.7.0 Authentication required\r\n";
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum CommandVerb {
@@ -154,6 +156,7 @@ impl HeloState {
 
 #[derive(Debug)]
 struct EhloState {
+    authorized: Option<User>
 }
 
 impl EhloState {
@@ -166,7 +169,11 @@ impl EhloState {
     }
     async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config, _from: InitState) -> Result<Self, io::Error> {
         writer.send(EhloState::build_ehlo_response(config)).await?;
-        Ok(Self {})
+        Ok(Self { authorized: None })
+    }
+    
+    fn push_authorized(&mut self, user: User) {
+        self.authorized = Some(user)
     }
 }
 
@@ -318,6 +325,7 @@ fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, BadCo
 
 struct MailFromState {
     sender: MailAddress,
+    authorized: Option<User>
 }
 
 impl MailFromState {
@@ -346,30 +354,39 @@ impl MailFromState {
             }
         };
         
+        let mut authorized = None;
+        if let SmtpState::EHLO(ehlo) = from_state {
+            authorized = ehlo.authorized;
+        }
+        
         writer.send("250 OK\r\n".to_string()).await?;
         Ok(SmtpState::MAIL(Self {
             sender,
+            authorized,
         }))
     }
 }
 
 enum RcptError {
     BadCommand,
-    InvalidMailbox
+    InvalidMailbox,
+    Unauthorized
 }
 
 impl RcptError {
     async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
         match self {
             RcptError::BadCommand => BadCommandError::write_msg(writer).await,
-            RcptError::InvalidMailbox => writer.send(MSG_INVALID_MAILBOX.to_string()).await
+            RcptError::InvalidMailbox => writer.send(MSG_INVALID_MAILBOX.to_string()).await,
+            RcptError::Unauthorized => writer.send(MSG_UNAUTHORIZED.to_string()).await,
         }
     }
 }
 
 struct RcptState {
     sender: MailAddress,
-    recipients: Vec<MailAddress>
+    recipients: Vec<MailAddress>,
+    authorized: Option<User>,
 }
 
 impl RcptState {
@@ -379,18 +396,24 @@ impl RcptState {
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
-        old_state: MailFromState
+        mut old_state: MailFromState
     ) -> Result<Self, Result<MailFromState, io::Error>> {
         let mut r = Self {
             sender: old_state.sender.clone(),
-            recipients: Vec::new()
+            recipients: Vec::new(),
+            authorized: old_state.authorized.take(),
         };
         
         match r.add_rcpt(writer, cmd).await {
-            Ok(_) => Ok(r),
+            Ok(_) => {
+                Ok(r)
+            },
             Err(Ok(rcpt_err)) => {
                 match rcpt_err.respond(writer).await {
-                    Ok(()) => Err(Ok(old_state)),
+                    Ok(()) => {
+                        old_state.authorized = r.authorized.take();
+                        Err(Ok(old_state))
+                    },
                     Err(io_err) => Err(Err(io_err))
                 }
             },
@@ -417,14 +440,15 @@ impl RcptState {
         Ok(())
         
     }
-}
 
-/// State rollback in case DATA command fails
-impl From<Envelope> for RcptState {
-    fn from(value: Envelope) -> RcptState {
+    /**
+    State rollback in case DATA command fails
+    */
+    fn from(envelope: Envelope, authorized: Option<User>) -> RcptState {
         RcptState {
-            sender: value.sender,
-            recipients: value.recipients,
+            sender: envelope.sender,
+            recipients: envelope.recipients,
+            authorized,
         }
     }
 }
@@ -433,6 +457,7 @@ struct DataState {
     user_db: UserDBMtx,
     sender: MailAddress,
     recipients: Vec<MailAddress>,
+    authorized: Option<User>,
     mail_body: String,
     body_finished: bool,
 }
@@ -449,6 +474,7 @@ impl DataState {
             user_db,
             sender: from_state.sender,
             recipients: from_state.recipients,
+            authorized: from_state.authorized,
             mail_body: String::new(),
             body_finished: false,
         })
@@ -460,6 +486,7 @@ impl DataState {
             user_db,
             sender: MailAddress::mock(),
             recipients: Vec::new(),
+            authorized: None,
             mail_body: String::new(),
             body_finished: false,
         }   
@@ -488,7 +515,7 @@ impl DataState {
                     },
                     Err(_) => {
                         Self::delivery_error_response(writer).await?;
-                        Ok(SmtpState::RCPT(mail.into()))
+                        Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized)))
                     }
                 }
             },
@@ -711,17 +738,13 @@ impl<T: IO> Smtp2<T> {
                     &mut self.conn_writer, cmd, self.user_db.clone(), ehlo
                 ).await?;
                 auth.respond(&mut self.conn_writer).await?;
-                let (state, user) = Self::transition_auth_result(auth)?;
-                self.authorized = user;
-                state
+                Self::transition_auth_result(auth)?
             },
             
             (SmtpState::AUTH(auth), _) => {
                 let auth = auth.handle_auth_step(&mut self.conn_writer, cmd).await?;
                 auth.respond(&mut self.conn_writer).await?;
-                let (state, user) = Self::transition_auth_result(auth)?;
-                self.authorized = user;
-                state
+                Self::transition_auth_result(auth)?
             }
             
             (SmtpState::HELO(helo), Some(CommandVerb::MAIL)) => {
@@ -792,14 +815,15 @@ impl<T: IO> Smtp2<T> {
     Converts an AuthResult into the SmtpState that it results in.
     On auth success, fills the returned Option<User> with the authenticated user.
     */
-    fn transition_auth_result(auth_result: AuthResult) -> Result<(SmtpState, Option<User>), io::Error> {
+    fn transition_auth_result(auth_result: AuthResult) -> Result<SmtpState, io::Error> {
         Ok(match auth_result {
-            AuthResult::Unfinished(auth) => (SmtpState::AUTH(auth), None),
-            AuthResult::Authorized((ehlo, user)) => {
-                (SmtpState::EHLO(ehlo), Some(user))
+            AuthResult::Unfinished(auth) => SmtpState::AUTH(auth),
+            AuthResult::Authorized((mut ehlo, user)) => {
+                ehlo.push_authorized(user);
+                SmtpState::EHLO(ehlo)
             },
-            AuthResult::BadMechanism(ehlo) => (SmtpState::EHLO(ehlo), None),
-            AuthResult::BadCredentials(ehlo) => (SmtpState::EHLO(ehlo), None)
+            AuthResult::BadMechanism(ehlo) => SmtpState::EHLO(ehlo),
+            AuthResult::BadCredentials(ehlo) => SmtpState::EHLO(ehlo)
         })
     }
 

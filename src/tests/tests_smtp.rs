@@ -2,7 +2,7 @@
 mod tests_smtp {
     use tokio::net::TcpStream;
     use crate::smtp::smtp::{Smtp2, StateKind};
-    use crate::smtp::smtp_mail::MailAddress;
+    use crate::smtp::envelope::MailAddress;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
 

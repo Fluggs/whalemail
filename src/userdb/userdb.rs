@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::error;
 use std::fmt::{Display, Formatter};
 use crate::auth::auth::Authorized;
-use crate::smtp::smtp_mail::MailAddress;
+use crate::smtp::envelope::MailAddress;
 
 #[derive(Debug)]
 pub(crate) enum Error {

@@ -1,7 +1,7 @@
 mod smtp {
     pub(crate) mod smtp;
     pub(crate) mod smtp_error;
-    pub(crate) mod smtp_mail;
+    pub(crate) mod envelope;
 }
 
 mod auth {
