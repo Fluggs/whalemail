@@ -42,8 +42,18 @@ impl Postgres {
 }
 
 impl UserDB for Postgres {
-    fn authorize(&self, authorized: &Authorized, password: String) -> bool {
-        todo!()
+    fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error> {
+        let user_addr = MailAddress::new(authorized.username.as_str()).unwrap();
+        let runtime = tokio::runtime::Handle::current();
+        let rows = tokio::task::block_in_place(move ||
+            runtime.block_on(self.client
+                .query("SELECT username, domain FROM users WHERE username = $1::TEXT AND domain = $2::TEXT AND password = $1::TEXT;",
+                       &[&user_addr.local_part, &user_addr.domain, &password])
+            ))
+            .or(Err(Error::DBError))?;
+        
+        debug!("{} authenticated", authorized.username);
+        Ok(rows.len() > 0)
     }
 
     /**

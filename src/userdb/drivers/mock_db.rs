@@ -22,9 +22,9 @@ impl MockDB {
 }
 
 impl UserDB for MockDB {
-    fn authorize(&self, authorized: &Authorized, password: String) -> bool {
-        authorized.identity.eq(&self.username.clone())
-            && password.eq(&self.password.clone())
+    fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error> {
+        Ok(authorized.identity.eq(&self.username.clone())
+            && password.eq(&self.password.clone()))
     }
 
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {

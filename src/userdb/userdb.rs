@@ -1,4 +1,6 @@
 use std::sync::{Arc, Mutex};
+use std::error;
+use std::fmt::{Display, Formatter};
 use crate::auth::auth::Authorized;
 use crate::smtp::smtp_mail::MailAddress;
 
@@ -8,8 +10,16 @@ pub(crate) enum Error {
     DBError,
 }
 
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl error::Error for Error {}
+
 pub(crate) trait UserDB {
-    fn authorize(&self, authorized: &Authorized, password: String) -> bool;
+    fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error>;
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error>;
 
     #[cfg(test)]
