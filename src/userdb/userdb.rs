@@ -30,4 +30,3 @@ pub(crate) trait UserDB {
 }
 
 pub(crate) type UserDBMtx = Arc<Mutex<dyn UserDB + Send>>;
-
