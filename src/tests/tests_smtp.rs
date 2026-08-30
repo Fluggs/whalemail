@@ -198,6 +198,21 @@ mod tests_smtp {
     }
 
     #[tokio::test]
+    async fn test_rcpt_bad_command() {
+        let mut s: Smtp2<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+
+        (s, _) = s.handle("RCPT TO: <mail@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "500 Bad command\r\n");
+    }
+
+    #[tokio::test]
     async fn test_mail_delivery_error() {
         let sender = "sender@test.org";
         let sender_addr = MailAddress::new(sender).unwrap();
