@@ -50,8 +50,11 @@ impl UserDB for Postgres {
                 .query("SELECT username, domain FROM users WHERE username = $1::TEXT AND domain = $2::TEXT AND password = $1::TEXT;",
                        &[&user_addr.local_part, &user_addr.domain, &password])
             ))
-            .or(Err(Error::DBError))?;
-        
+            .or_else(|err| {
+                debug!("DB error: '{:?}', '{:?}', '{:?}'", err, err.code(), err.as_db_error());
+                Err(Error::DBError)
+            })?;
+
         debug!("{} authenticated", authorized.username);
         Ok(rows.len() > 0)
     }
