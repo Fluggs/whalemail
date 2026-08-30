@@ -47,7 +47,7 @@ impl UserDB for Postgres {
         let runtime = tokio::runtime::Handle::current();
         let rows = tokio::task::block_in_place(move ||
             runtime.block_on(self.client
-                .query("SELECT username, domain FROM users WHERE username = $1::TEXT AND domain = $2::TEXT AND password = $1::TEXT;",
+                .query("SELECT username, domain FROM users WHERE username = $1::TEXT AND domain = $2::TEXT AND password = $3::TEXT;",
                        &[&user_addr.local_part, &user_addr.domain, &password])
             ))
             .or_else(|err| {
