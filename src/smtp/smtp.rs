@@ -17,7 +17,7 @@ use crate::user::User;
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
 static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
 static MSG_MAILBOX_UNAVAILABLE: &str = "450 Requested mail action not taken: mailbox unavailable\r\n";
-static MSG_BAD_COMMAND: &str = "500 Bad command\r\n";
+static MSG_BAD_COMMAND: &str = "500 Unrecognized command\r\n";
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum CommandVerb {
@@ -776,7 +776,7 @@ impl<T: IO> Smtp2<T> {
 
             (_state, None) => {
                 debug!("Unrecognized command");
-                self.conn_writer.send("500 Unrecognized command\r\n".to_string()).await
+                self.conn_writer.send(MSG_BAD_COMMAND.to_string()).await
                     .and(Ok(SmtpState::CANCELLED))
                     .or_else(|io_err| Err(io_err))?
             }
