@@ -1,4 +1,3 @@
-use std::ptr::addr_eq;
 use std::sync::{Arc, Mutex};
 use log::debug;
 use crate::auth::auth::Authorized;
@@ -30,9 +29,12 @@ impl UserDB for MockDB {
     }
 
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {
+        debug!("Getting mailboxhome; recipient: {:?}, mocked mailbox: {:?}", rcpt, self.mailbox);
         match rcpt.eq(&self.mailbox.clone().unwrap()) {
             true => Ok(String::from("testmails/%{user}")),
-            false => Err(Error::DBError)
+            false => {
+                Err(Error::DBError)
+            }
         }
     }
 

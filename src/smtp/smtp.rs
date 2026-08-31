@@ -398,7 +398,8 @@ impl MailFromState {
 
 enum RcptError {
     BadCommand,
-    InvalidMailbox
+    InvalidMailbox,
+    Unauthorized,
 }
 
 impl RcptError {
@@ -406,6 +407,7 @@ impl RcptError {
         match self {
             RcptError::BadCommand => BadCommandError::write_msg(writer).await,
             RcptError::InvalidMailbox => writer.send(MSG_INVALID_MAILBOX.to_string()).await,
+            RcptError::Unauthorized => writer.send(MSG_UNAUTHORIZED.to_string()).await,
         }
     }
 }
@@ -423,6 +425,7 @@ impl RcptState {
     */
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
+        hostname: &str,
         cmd: Command,
         mut from_state: MailFromState
     ) -> Result<Self, Result<MailFromState, io::Error>> {
@@ -433,7 +436,7 @@ impl RcptState {
             authorized: from_state.authorized.take(),
         };
         
-        match r.add_rcpt(writer, cmd).await {
+        match r.add_rcpt(writer, hostname, cmd).await {
             Ok(_) => {
                 Ok(r)
             },
@@ -451,17 +454,39 @@ impl RcptState {
     }
     
     /**
+    Determines whether the client has permission to send to a recipient address.
+    */
+    fn has_permission(hostname: &str, authorized: &Option<User>, rcpt: &mut MailAddress) -> bool {
+        let r = match rcpt.domain.eq(hostname) {
+            false => match authorized {
+                None => false,
+                Some(_) => {
+                    true
+                }
+            },
+            true => true
+        };
+
+        debug!("'{:?}' has permission to send to '{}': '{}'", authorized.as_ref().map(|user| &user.identity), rcpt, r);
+        r
+    }
+    
+    /**
     Parses an RCPT command and adds the resulting recipient.
     */
-    async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, cmd: Command)
+    async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, hostname: &str, cmd: Command)
         -> Result<(), Result<RcptError, io::Error>> {
         let recipient = parse_address_message_by_re(
             Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap(), &cmd
         )
             .or_else(|_| Err(Ok(RcptError::BadCommand)))?;
-        let recipient = MailAddress::new(recipient.as_str())
+        let mut recipient = MailAddress::new(recipient.as_str())
             .map_err(|_| RcptError::InvalidMailbox)
             .or_else(|smtp_err| Err(Ok(smtp_err)))?;
+        
+        if !Self::has_permission(hostname, &self.authorized, &mut recipient) {
+            return Err(Ok(RcptError::Unauthorized));
+        }
         
         self.recipients.push(recipient);
         writer.send("250 OK\r\n".to_string()).await
@@ -529,6 +554,9 @@ impl DataState {
         writer.send(MSG_MAILBOX_UNAVAILABLE.to_string()).await
     }
     
+    /**
+    Handles incoming data after a DATA command
+    */
     async fn receive_data<T: IO>(
         mut self,
         writer: &mut ConnectionWriter<T>,
@@ -546,7 +574,8 @@ impl DataState {
                         writer.send("250 OK\r\n".to_string()).await?;
                         Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
                     },
-                    Err(_) => {
+                    Err(err) => {
+                        debug!("Mail delivery error: {:?}", err);
                         Self::delivery_error_response(writer).await?;
                         Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized, self.is_local_sender)))
                     }
@@ -565,7 +594,10 @@ impl DataState {
         for rcpt in &envelope.recipients {
             let mb = match user_db.lock().unwrap().get_mailboxhome(rcpt) {
                 Ok(mb) => mb,
-                Err(_) => return Err(DeliveryError::NoSuchUser(rcpt.address.clone()))
+                Err(err) => {
+                    debug!("Mail delivery error: {:?}", err);
+                    return Err(DeliveryError::NoSuchUser(rcpt.address.clone()))
+                }
             };
             mailboxes.push((rcpt, mb));
         }
@@ -795,14 +827,14 @@ impl<T: IO> Smtp2<T> {
             },
             
             (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {
-                RcptState::new(&mut self.conn_writer, cmd, mail)
+                RcptState::new(&mut self.conn_writer, self.config.hostname.as_str(), cmd, mail)
                     .await
                     .and_then(|rcpt| Ok(SmtpState::RCPT(rcpt)))
                     .or_else(|res_mailfrom| Ok::<SmtpState, io::Error>(SmtpState::MAIL(res_mailfrom?)))?
             },
             
             (SmtpState::RCPT(mut rcpt), Some(CommandVerb::RCPT)) => {
-                match rcpt.add_rcpt(&mut self.conn_writer, cmd).await {
+                match rcpt.add_rcpt(&mut self.conn_writer, self.config.hostname.as_str(), cmd).await {
                     Ok(()) => Ok(SmtpState::RCPT(rcpt)),
                     Err(Ok(rcpt_err)) => {
                         rcpt_err.respond(&mut self.conn_writer).await?;

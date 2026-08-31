@@ -297,6 +297,22 @@ mod tests_smtp {
     }
 
     #[tokio::test]
+    async fn test_rcpt_not_authenticated() {
+        let mut s: Smtp2<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+        
+        (s, _) = s.handle("RCPT TO:<mail@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "530 5.7.0 Authentication required\r\n");
+    }
+
+    #[tokio::test]
     async fn test_rcpt_bad_command() {
         let mut s: Smtp2<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
@@ -329,6 +345,7 @@ mod tests_smtp {
         (s, _) = s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
+        s.user_db().lock().unwrap().mock_mailbox(rcpt.clone());
         (s, _) = s.handle(format!("RCPT TO:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
@@ -355,7 +372,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_dtp_simple_mail() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let s: Smtp2<TcpStream> = test_setup().await;
         let expected = "blub\r\n.\r\n".to_string();
         
         let (result, mail_body) = s.decode_transparency(expected.clone());

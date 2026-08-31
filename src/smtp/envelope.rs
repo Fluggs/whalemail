@@ -6,7 +6,6 @@ use crate::userdb::userdb::UserDBMtx;
 pub(crate) struct InvalidMailAddress {}
 
 #[derive(Debug)]
-#[derive(PartialEq)]
 #[derive(Clone)]
 pub(crate) struct MailAddress {
     pub(crate) address: String,
@@ -59,8 +58,13 @@ impl Display for MailAddress {
     }
 }
 
+impl PartialEq for MailAddress {
+    fn eq(&self, other: &Self) -> bool {
+        self.address.eq(&other.address)
+    }
+}
+
 pub(crate) struct Envelope {
-    // todo convert to MailAddress
     pub(crate) sender: MailAddress,
     pub(crate) recipients: Vec<MailAddress>,
     pub(crate) body: String,
@@ -68,7 +72,6 @@ pub(crate) struct Envelope {
 }
 
 impl Envelope {
-    
     pub(crate) fn new(sender: MailAddress, recipients: Vec<MailAddress>, body: String) -> Self {
         Self {
             sender,
