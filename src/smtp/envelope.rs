@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
+use crate::userdb::userdb::UserDBMtx;
 
 #[derive(Debug)]
 pub(crate) struct InvalidMailAddress {}
@@ -11,6 +12,9 @@ pub(crate) struct MailAddress {
     pub(crate) address: String,
     pub(crate) local_part: String,
     pub(crate) domain: String,
+    
+    // Cache for locality check against user database
+    is_local_mailbox: Option<bool>,
 }
 
 impl MailAddress {
@@ -20,9 +24,21 @@ impl MailAddress {
             2 => Ok(MailAddress {
                     address: s.to_string(),
                     local_part: split[0].to_string(),
-                    domain: split[1].to_string()
+                    domain: split[1].to_string(),
+                    is_local_mailbox: None,
                 }),
             _ => Err(InvalidMailAddress { })
+        }
+    }
+    
+    pub(crate) fn cached_is_local(&mut self, user_db: UserDBMtx) -> bool {
+        match self.is_local_mailbox {
+            Some(res) => res,
+            None => {
+                let r = user_db.lock().unwrap().is_local_mailbox(self); 
+                self.is_local_mailbox = Some(r);
+                r
+            }
         }
     }
     
@@ -32,6 +48,7 @@ impl MailAddress {
             address: String::new(),
             local_part: String::new(),
             domain: String::new(),
+            is_local_mailbox: None,
         }
     }
 }

@@ -63,6 +63,7 @@ Represents an authenticated and authorized user/identity.
 #[derive(Clone)]
 #[derive(Debug)]
 pub struct Authorized {
+    pub(crate) hostname: String,
     pub(crate) identity: String,
     pub(crate) username: String,
 }
@@ -75,7 +76,7 @@ impl Authorized {
     Returns `Error::AuthUnsuccessful` when mandatory input (username, password) is missing or when
     identity and username are different.
     */
-    fn new(identity: Option<&str>, username: Option<&str>, password: Option<&[u8]>) -> Result<(Authorized, String), Error> {
+    fn new(hostname: String, identity: Option<&str>, username: Option<&str>, password: Option<&[u8]>) -> Result<(Authorized, String), Error> {
         let (username, password): (String, String) = match (username, password) {
             (None, _) | (_, None) => {
                 return Err(Error::AuthUnsuccessful);
@@ -103,6 +104,7 @@ impl Authorized {
         
         Ok((
             Authorized {
+                hostname,
                 identity,
                 username
             },
@@ -184,11 +186,16 @@ impl Auth {
 
     If `initial_step` leads to an immediate authorization, `authorized()` will return the result.
     */
-    pub(crate) fn new(user_db: UserDBMtx, selected: String, initial_step: Option<String>) -> Result<Auth, Error> {
+    pub(crate) fn new(
+        user_db: UserDBMtx,
+        hostname: String,
+        selected: String,
+        initial_step: Option<String>
+    ) -> Result<Auth, Error> {
         debug!("Building Auth with mechanism '{selected}' and mech argument '{:?}'", initial_step);
         let mechname = Mechname::parse(selected.as_ref())
             .or(Err(Error::InvalidMechanism))?;
-        let callback = Callback { user_db: user_db.clone() };
+        let callback = Callback { hostname, user_db: user_db.clone() };
         let sasl = SASLConfig::builder()
             .with_registry(Registry::with_mechanisms(MECHANISMS))
             .with_callback(callback)
@@ -322,16 +329,18 @@ impl Auth {
 }
 
 struct Callback {
-    user_db: UserDBMtx
+    user_db: UserDBMtx,
+    hostname: String,
 }
 
 impl SessionCallback for Callback {
     fn validate(&self, _session_data: &SessionData, context: &Context, validate: &mut Validate<'_>) -> Result<(), ValidationError> {
         let (user, password) = match Authorized::new(
-                context.get_ref::<AuthzId>(),
-                context.get_ref::<AuthId>(),
-                context.get_ref::<Password>())
-        {
+            self.hostname.clone(),
+            context.get_ref::<AuthzId>(),
+            context.get_ref::<AuthId>(),
+            context.get_ref::<Password>()
+        ) {
             Ok((user, password)) => (user, password),
             Err(_) => return Ok(())
         };

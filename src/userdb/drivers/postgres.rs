@@ -73,7 +73,7 @@ impl UserDB for Postgres {
 
         let row = match rows.len() {
             0 => {
-                debug!("No mailbox found for user '{}'", rcpt);
+                debug!("No local mailbox found for address '{}'", rcpt);
                 return Err(Error::DBError);
             },
             1 => {
@@ -91,13 +91,17 @@ impl UserDB for Postgres {
         Ok(r)
     }
 
-    #[cfg(test)]
-    fn mock_user(&mut self, _username: String, _password: String, _mailbox: String) {
-        todo!()
+    fn is_local_mailbox(&self, rcpt: &MailAddress) -> bool {
+        self.get_mailboxhome(rcpt).is_ok()
     }
 
     #[cfg(test)]
-    fn mock_mailbox(&mut self, _mailbox: String) {
-        todo!()
+    fn mock_user(&mut self, _username: &str, _password: &str) {
+        unreachable!()
+    }
+
+    #[cfg(test)]
+    fn mock_mailbox(&mut self, _mailbox: MailAddress) {
+        unreachable!()
     }
 }

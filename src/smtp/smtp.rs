@@ -6,7 +6,6 @@ use log::{debug};
 use regex::Regex;
 use crate::config::Config;
 use crate::auth::auth;
-use crate::auth::auth::Authorized;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
@@ -220,6 +219,7 @@ impl AuthState {
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
         user_db: UserDBMtx,
+        hostname: String,
         from: EhloState
     ) -> Result<AuthResult, io::Error> {
         // Parse AUTH <mech> [mech_arg]
@@ -237,7 +237,7 @@ impl AuthState {
         let mech_arg = mech_arg
             .and_then(|re_match| Some(String::from(re_match.as_str())));
 
-        let auth = match auth::Auth::new(user_db.clone(), mech, mech_arg) {
+        let auth = match auth::Auth::new(user_db.clone(), hostname, mech, mech_arg) {
             Ok(auth) => auth,
             Err(auth::Error::InvalidMechanism) => return Ok(AuthResult::BadMechanism(from)),
             Err(auth::Error::AuthUnsuccessful) => return Ok(AuthResult::BadCredentials(from))
@@ -325,12 +325,14 @@ fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, BadCo
 
 struct MailFromState {
     sender: MailAddress,
-    authorized: Option<User>
+    is_local_sender: bool,
+    authorized: Option<User>,
 }
 
 impl MailFromState {
     async fn mail_from<T: IO>(
         writer: &mut ConnectionWriter<T>,
+        user_db: UserDBMtx,
         cmd: Command,
         from_state: SmtpState
     ) -> Result<SmtpState, io::Error> {
@@ -346,7 +348,7 @@ impl MailFromState {
             }
         };
         
-        let sender = match MailAddress::new(sender.as_str()) {
+        let mut sender = match MailAddress::new(sender.as_str()) {
             Ok(sender) => sender,
             Err(_) => {
                 writer.send(MSG_INVALID_HOST.to_string()).await?;
@@ -354,23 +356,49 @@ impl MailFromState {
             }
         };
         
+        // Handle auth and permission
         let mut authorized = None;
         if let SmtpState::EHLO(ehlo) = from_state {
+            if !Self::has_permission(user_db.clone(), &ehlo.authorized, &mut sender) {
+                writer.send(MSG_UNAUTHORIZED.to_string()).await?;
+                return Ok(SmtpState::EHLO(ehlo));
+            }
             authorized = ehlo.authorized;
         }
         
         writer.send("250 OK\r\n".to_string()).await?;
+        let is_local_sender = sender.cached_is_local(user_db);
         Ok(SmtpState::MAIL(Self {
             sender,
+            is_local_sender,
             authorized,
         }))
+    }
+    
+    /**
+    Returns whether the sender is authorized to use the stated sender address.
+    This is only false when the sender address is a local mailbox and `authorized` does not match the sender.
+    */
+    fn has_permission(user_db: UserDBMtx, authorized: &Option<User>, sender: &mut MailAddress) -> bool {
+        let r = match sender.cached_is_local(user_db) {
+            true => match authorized {
+                None => false,
+                Some(user) => {
+                    debug!("user: '{}' @ '{}', sender: '{}' @ '{}'", user.identity, user.hostname, sender.local_part, sender.domain);
+                    user.identity.eq(&sender.local_part) && user.hostname.eq(&sender.domain)
+                }
+            },
+            false => true
+        };
+        
+        debug!("'{:?}' has permission to send as '{}': '{}'", authorized.as_ref().map(|user| &user.identity), sender, r);
+        r
     }
 }
 
 enum RcptError {
     BadCommand,
-    InvalidMailbox,
-    Unauthorized
+    InvalidMailbox
 }
 
 impl RcptError {
@@ -378,13 +406,13 @@ impl RcptError {
         match self {
             RcptError::BadCommand => BadCommandError::write_msg(writer).await,
             RcptError::InvalidMailbox => writer.send(MSG_INVALID_MAILBOX.to_string()).await,
-            RcptError::Unauthorized => writer.send(MSG_UNAUTHORIZED.to_string()).await,
         }
     }
 }
 
 struct RcptState {
     sender: MailAddress,
+    is_local_sender: bool,
     recipients: Vec<MailAddress>,
     authorized: Option<User>,
 }
@@ -396,12 +424,13 @@ impl RcptState {
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
-        mut old_state: MailFromState
+        mut from_state: MailFromState
     ) -> Result<Self, Result<MailFromState, io::Error>> {
         let mut r = Self {
-            sender: old_state.sender.clone(),
+            sender: from_state.sender.clone(),
+            is_local_sender: from_state.is_local_sender,
             recipients: Vec::new(),
-            authorized: old_state.authorized.take(),
+            authorized: from_state.authorized.take(),
         };
         
         match r.add_rcpt(writer, cmd).await {
@@ -411,8 +440,8 @@ impl RcptState {
             Err(Ok(rcpt_err)) => {
                 match rcpt_err.respond(writer).await {
                     Ok(()) => {
-                        old_state.authorized = r.authorized.take();
-                        Err(Ok(old_state))
+                        from_state.authorized = r.authorized.take();
+                        Err(Ok(from_state))
                     },
                     Err(io_err) => Err(Err(io_err))
                 }
@@ -433,7 +462,7 @@ impl RcptState {
         let recipient = MailAddress::new(recipient.as_str())
             .map_err(|_| RcptError::InvalidMailbox)
             .or_else(|smtp_err| Err(Ok(smtp_err)))?;
-
+        
         self.recipients.push(recipient);
         writer.send("250 OK\r\n".to_string()).await
             .or_else(|ioerr| Err(Err(ioerr)))?;
@@ -444,9 +473,10 @@ impl RcptState {
     /**
     State rollback in case DATA command fails
     */
-    fn from(envelope: Envelope, authorized: Option<User>) -> RcptState {
+    fn from(envelope: Envelope, authorized: Option<User>, is_local_sender: bool) -> RcptState {
         RcptState {
             sender: envelope.sender,
+            is_local_sender,
             recipients: envelope.recipients,
             authorized,
         }
@@ -456,6 +486,7 @@ impl RcptState {
 struct DataState {
     user_db: UserDBMtx,
     sender: MailAddress,
+    is_local_sender: bool,
     recipients: Vec<MailAddress>,
     authorized: Option<User>,
     mail_body: String,
@@ -473,6 +504,7 @@ impl DataState {
         Ok(Self {
             user_db,
             sender: from_state.sender,
+            is_local_sender: from_state.is_local_sender,
             recipients: from_state.recipients,
             authorized: from_state.authorized,
             mail_body: String::new(),
@@ -485,6 +517,7 @@ impl DataState {
         Self {
             user_db,
             sender: MailAddress::mock(),
+            is_local_sender: false,
             recipients: Vec::new(),
             authorized: None,
             mail_body: String::new(),
@@ -515,7 +548,7 @@ impl DataState {
                     },
                     Err(_) => {
                         Self::delivery_error_response(writer).await?;
-                        Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized)))
+                        Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized, self.is_local_sender)))
                     }
                 }
             },
@@ -735,7 +768,11 @@ impl<T: IO> Smtp2<T> {
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::AUTH)) => {
                 let auth = AuthState::init_sasl(
-                    &mut self.conn_writer, cmd, self.user_db.clone(), ehlo
+                    &mut self.conn_writer,
+                    cmd,
+                    self.user_db.clone(),
+                    self.config.hostname.clone(),
+                    ehlo
                 ).await?;
                 auth.respond(&mut self.conn_writer).await?;
                 Self::transition_auth_result(auth)?
@@ -748,12 +785,12 @@ impl<T: IO> Smtp2<T> {
             }
             
             (SmtpState::HELO(helo), Some(CommandVerb::MAIL)) => {
-                MailFromState::mail_from(&mut self.conn_writer, cmd, SmtpState::HELO(helo))
+                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::HELO(helo))
                     .await?
             },
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::MAIL)) => {
-                MailFromState::mail_from(&mut self.conn_writer, cmd, SmtpState::EHLO(ehlo))
+                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::EHLO(ehlo))
                     .await?
             },
             
@@ -816,7 +853,7 @@ impl<T: IO> Smtp2<T> {
     On auth success, fills the returned Option<User> with the authenticated user.
     */
     fn transition_auth_result(auth_result: AuthResult) -> Result<SmtpState, io::Error> {
-        Ok(match auth_result {
+        let r = match auth_result {
             AuthResult::Unfinished(auth) => SmtpState::AUTH(auth),
             AuthResult::Authorized((mut ehlo, user)) => {
                 ehlo.push_authorized(user);
@@ -824,7 +861,10 @@ impl<T: IO> Smtp2<T> {
             },
             AuthResult::BadMechanism(ehlo) => SmtpState::EHLO(ehlo),
             AuthResult::BadCredentials(ehlo) => SmtpState::EHLO(ehlo)
-        })
+        };
+        
+        debug!("Transitioning auth to '{:?}'", r);
+        Ok(r)
     }
 
     #[cfg(test)]
@@ -864,6 +904,15 @@ impl<T: IO> Smtp2<T> {
             | SmtpState::QUIT(complete) => {
                 complete.mail()
             },
+            _ => panic!("Incorrect smtp state: {:?}", self.state)
+        }
+    }
+
+    #[cfg(test)]
+        pub(crate) fn is_local_sender(&self) -> bool {
+        match &self.state {
+            SmtpState::RCPT(rcpt) => rcpt.is_local_sender,
+            SmtpState::MAIL(mail) => mail.is_local_sender,
             _ => panic!("Incorrect smtp state: {:?}", self.state)
         }
     }

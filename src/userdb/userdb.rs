@@ -21,12 +21,13 @@ impl error::Error for Error {}
 pub(crate) trait UserDB {
     fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error>;
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error>;
+    fn is_local_mailbox(&self, address: &MailAddress) -> bool;
 
     #[cfg(test)]
-    fn mock_user(&mut self, username: String, password: String, mailbox: String);
+    fn mock_user(&mut self, username: &str, password: &str);
 
     #[cfg(test)]
-    fn mock_mailbox(&mut self, mailbox: String);
+    fn mock_mailbox(&mut self, mailbox: MailAddress);
 }
 
 pub(crate) type UserDBMtx = Arc<Mutex<dyn UserDB + Send>>;

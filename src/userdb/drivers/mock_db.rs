@@ -1,4 +1,6 @@
+use std::ptr::addr_eq;
 use std::sync::{Arc, Mutex};
+use log::debug;
 use crate::auth::auth::Authorized;
 use crate::smtp::envelope::MailAddress;
 use crate::userdb::userdb::{Error, UserDB, UserDBMtx};
@@ -6,7 +8,7 @@ use crate::userdb::userdb::{Error, UserDB, UserDBMtx};
 pub(crate) struct MockDB {
     pub(crate) username: String,
     pub(crate) password: String,
-    pub(crate) mailbox: String,
+    pub(crate) mailbox: Option<MailAddress>,
 }
 
 impl MockDB {
@@ -14,7 +16,7 @@ impl MockDB {
         let r = Self {
             username: String::new(),
             password: String::new(),
-            mailbox: String::new(),
+            mailbox: None,
         };
 
         Arc::new(Mutex::new(r))
@@ -28,21 +30,31 @@ impl UserDB for MockDB {
     }
 
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {
-        match rcpt.address.eq(&self.mailbox) {
+        match rcpt.eq(&self.mailbox.clone().unwrap()) {
             true => Ok(String::from("testmails/%{user}")),
             false => Err(Error::DBError)
         }
     }
 
-    fn mock_user(&mut self, username: String, password: String, mailbox: String) {
-        self.username = username;
-        self.password = password;
-        self.mailbox = mailbox;
+    fn is_local_mailbox(&self, address: &MailAddress) -> bool {
+        let r = match self.mailbox.clone() {
+            None => false,
+            Some(mb) => address.eq(&mb)
+        };
+        
+        debug!("{} is local: {}", address.address, r);
+        r
     }
 
-    fn mock_mailbox(&mut self, mailbox: String) {
+    fn mock_user(&mut self, username: &str, password: &str) {
+        self.username = username.to_string();
+        self.password = password.to_string();
+        self.mailbox = None;
+    }
+
+    fn mock_mailbox(&mut self, mailbox: MailAddress) {
         self.username = String::new();
         self.password = String::new();
-        self.mailbox = mailbox;
+        self.mailbox = Some(mailbox);
     }
 }

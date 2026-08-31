@@ -75,7 +75,7 @@ impl Config {
     #[cfg(test)]
     pub(crate) fn mock() -> Config {
         Config {
-            hostname: "whalemail.tld".to_string(),
+            hostname: "whalemail.net".to_string(),
             bind_ip: "0.0.0.0:25".to_string(),
             bind_ip_tls: "0.0.0.0:465".to_string(),
             cert_dir: None,
