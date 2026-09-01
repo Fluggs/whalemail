@@ -56,22 +56,22 @@ pub mod test {
     use crate::userdb::drivers::mock_db::MockDB;
     use crate::config::Config;
     use crate::net::IO;
-    use crate::smtp::server::{ehlo_response, Smtp2};
+    use crate::smtp::server::{ehlo_response, SmtpServer};
     use crate::maildir::Storage;
     use crate::tests::test::{SmtpTest};
 
-    pub(crate) fn ehlo_msg(s: &Smtp2<TcpStream>) -> String {
+    pub(crate) fn ehlo_msg(s: &SmtpServer<TcpStream>) -> String {
         ehlo_response(s.config())
     }
 
     #[cfg(test)]
-    pub(crate) async fn test_setup<T: IO>() -> Smtp2<T> {
+    pub(crate) async fn test_setup<T: IO>() -> SmtpServer<T> {
         match env_logger::Builder::from_env(Env::default().default_filter_or("debug"))
             .is_test(true).try_init() {
             Ok(()) => {},
             Err(_) => {}
         };
-        Smtp2::new_testbed(
+        SmtpServer::new_testbed(
             SmtpTest {
                 last_msg: None,
                 received: false,

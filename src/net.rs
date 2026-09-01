@@ -6,11 +6,35 @@ use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
-use crate::smtp::server::{Smtp2, StateKind};
+use crate::smtp::server::{SmtpServer, StateKind};
 use crate::maildir::Storage;
+use crate::smtp::client::SmtpClient;
 
 pub trait IO: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin> IO for T {}
+
+enum Either<T: IO> {
+    Server(SmtpServer<T>),
+    Client(SmtpClient<T>)
+}
+
+impl<T: IO> Either<T> {
+    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Either::Server(server) => server.connhandler_mut().read(buf).await,
+            Either::Client(client) => client.connhandler_mut().read(buf).await
+        }
+    }
+    
+    async fn handle(self, input: String) -> Result<(Either<T>, StateKind), Error> {
+        match self {
+            Either::Server(server) => server.handle(input).await
+                .and_then(|(server, state_kind)| Ok((Either::Server(server), state_kind))),
+            Either::Client(client) => client.handle(input).await
+                .and_then(|(client, state_kind)| Ok((Either::Client(client), state_kind))),
+        }
+    }
+}
 
 pub struct ConnectionHandler<T: IO> {
     socket: T,
@@ -29,21 +53,29 @@ impl<T: IO> ConnectionHandler<T> {
         self.socket.read(buf).await
     }
     
-    pub async fn process_socket(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
+    pub(crate) async fn server_loop(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
         let maildir_config = (&config.maildir_config).clone();
         let hostname = config.hostname.clone();
-        let mut smtp = Smtp2::new(
+        let smtp = Either::Server(SmtpServer::new(
             self,
             config,
             user_db,
             Storage::new(hostname, maildir_config)
         )
-            .await?;
+            .await?);
         
+        Self::socket_loop(smtp).await
+    }
+    
+    pub(crate) async fn client_loop(self, client: SmtpClient<T>) -> io::Result<()> {
+        Self::socket_loop(Either::Client(client)).await
+    }
+    
+    async fn socket_loop(mut smtp: Either<T>) -> io::Result<()> {
         loop {
 
             let mut buf = [0; 4096];
-            match smtp.connhandler_mut().read(&mut buf).await? {
+            match smtp.read(&mut buf).await? {
                 0 => {
                     info!("Connection closed by client.");
                     break

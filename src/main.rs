@@ -1,5 +1,7 @@
 mod smtp {
     pub(crate) mod server;
+    pub(crate) mod client;
+    pub(crate) mod common;
     pub(crate) mod error;
     pub(crate) mod envelope;
 }
@@ -150,7 +152,7 @@ async fn main() -> io::Result<()> {
 async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
-    match handler.process_socket(config, user_db).await {
+    match handler.server_loop(config, user_db).await {
         Ok(()) => (),
         Err(err) => eprintln!("Socket came back with error: '{err}'")
     }

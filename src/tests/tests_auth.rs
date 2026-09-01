@@ -3,7 +3,7 @@ mod tests_auth {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
     use tokio::net::TcpStream;
-    use crate::smtp::server::Smtp2;
+    use crate::smtp::server::SmtpServer;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
 
@@ -15,7 +15,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_unknown_mech() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -27,7 +27,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_no_mech() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -39,7 +39,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_oneline_success() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -54,7 +54,7 @@ mod tests_auth {
     // todo figure out whether this should be possible
     //#[tokio::test]
     async fn test_auth_plain_multiline_success() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -71,7 +71,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_oneline64_success() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -87,7 +87,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_multiline64_success() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -102,7 +102,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_no_identity() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -116,7 +116,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_plain_wrong_pw() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -130,7 +130,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_login_success() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org\r\n")).await.unwrap();
@@ -150,7 +150,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_lowercase_mech() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -162,7 +162,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_invalid_mech_arg() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
@@ -174,7 +174,7 @@ mod tests_auth {
 
     #[tokio::test]
     async fn test_auth_login_invalid_input() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();

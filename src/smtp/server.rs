@@ -727,7 +727,7 @@ impl Debug for SmtpState {
     }
 }
 
-pub(crate) struct Smtp2<T: IO> {
+pub(crate) struct SmtpServer<T: IO> {
     conn_writer: ConnectionWriter<T>,
     config: Config,
     state: SmtpState,
@@ -737,7 +737,7 @@ pub(crate) struct Smtp2<T: IO> {
     authorized: Option<User>,
 }
 
-impl<T: IO> Smtp2<T> {
+impl<T: IO> SmtpServer<T> {
     async fn build(
         mut cw: ConnectionWriter<T>,
         config: Config,

@@ -3,7 +3,7 @@ mod tests_smtp {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
     use tokio::net::TcpStream;
-    use crate::smtp::server::{Smtp2, StateKind};
+    use crate::smtp::server::{SmtpServer, StateKind};
     use crate::smtp::envelope::MailAddress;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
@@ -16,14 +16,14 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_init() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
 
         expect_msg!(s, "220 hi\r\n");
     }
 
     #[tokio::test]
     async fn test_n_unknown_cmd() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -39,7 +39,7 @@ mod tests_smtp {
         let sender_addr = MailAddress::new(sender).unwrap();
         let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
         
         expect_msg!(s, "220 hi\r\n");
@@ -75,7 +75,7 @@ mod tests_smtp {
         let sender_addr = MailAddress::new(sender).unwrap();
         let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
 
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
         
         expect_msg!(s, "220 hi\r\n");
@@ -109,7 +109,7 @@ mod tests_smtp {
     async fn test_n_mail_parts() {
         let mailct_1 = "<mailblob> blob blob\r\n".to_string();
         let mailct_2 = "more blob\r\n.\r\n".to_string();
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
         
         expect_msg!(s, "220 hi\r\n");
@@ -145,7 +145,7 @@ mod tests_smtp {
     async fn test_helo_multiple_rcpt() {
         let rcpt1 = MailAddress::new("rcv1@whalemail.net").unwrap();
         let rcpt2 = MailAddress::new("rcv2@whalemail.net").unwrap();
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -167,7 +167,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_n_omit_rcpt() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -182,7 +182,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_mailfrom_bad_command() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -194,7 +194,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_mailfrom_authorized_onestep() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -213,7 +213,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_mailfrom_authorized_multistep() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -240,7 +240,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_mailfrom_invalid_mailbox() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -252,7 +252,7 @@ mod tests_smtp {
     
     #[tokio::test]
     async fn test_mailfrom_not_authenticated() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -265,7 +265,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_mailfrom_unauthorized() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -283,7 +283,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_rcpt_invalid_mailbox() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -298,7 +298,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_rcpt_not_authenticated() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -314,7 +314,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_rcpt_bad_command() {
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -334,7 +334,7 @@ mod tests_smtp {
         let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
         let another_rcpt = MailAddress::new("another_rcv@whalemail.net").unwrap();
 
-        let mut s: Smtp2<TcpStream> = test_setup().await;
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_user("rcv", "");
 
         expect_msg!(s, "220 hi\r\n");
@@ -362,7 +362,7 @@ mod tests_smtp {
      */
     #[tokio::test]
     async fn test_dtp_empty_s() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let expected = "".to_string();
 
         let (result, mail_body) = s.decode_transparency(expected.clone());
@@ -372,7 +372,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_dtp_simple_mail() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let expected = "blub\r\n.\r\n".to_string();
         
         let (result, mail_body) = s.decode_transparency(expected.clone());
@@ -387,7 +387,7 @@ mod tests_smtp {
         We interpret this as the end of mail, so functionally an empty mail.
      */
     async fn test_dtp_first_line_transparency() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let input = ".\r\n.\r\n".to_string();
         let expected = ".\r\n".to_string();
         let (result, mail_body) = s.decode_transparency(input);
@@ -397,7 +397,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_dtp_multi_line_transparency() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let input = ".abc\r\n.bcdef\r\ng\r\n.\r\n".to_string();
         let expected = "abc\r\nbcdef\r\ng\r\n.\r\n".to_string();
         let (result, mail_body) = s.decode_transparency(input);
@@ -407,7 +407,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_dtp_double_period_transparency() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let input = "..a\r\n..bc\r\n.\r\n".to_string();
         let expected = ".a\r\n.bc\r\n.\r\n".to_string();
         let (result, mail_body) = s.decode_transparency(input);
@@ -417,7 +417,7 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_dtp_multi_line_transparency_no_end() {
-        let s: Smtp2<TcpStream> = test_setup().await;
+        let s: SmtpServer<TcpStream> = test_setup().await;
         let input = ".abc\r\n.bcdef\r\n".to_string();
         let expected = "abc\r\nbcdef\r\n".to_string();
         let (result, mail_body) = s.decode_transparency(input);
