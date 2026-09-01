@@ -9,7 +9,7 @@ use crate::auth::auth;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
-use crate::smtp::smtp_error::DeliveryError;
+use crate::smtp::error::DeliveryError;
 use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::maildir::Storage;
 use crate::user::User;

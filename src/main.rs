@@ -1,6 +1,6 @@
 mod smtp {
-    pub(crate) mod smtp;
-    pub(crate) mod smtp_error;
+    pub(crate) mod server;
+    pub(crate) mod error;
     pub(crate) mod envelope;
 }
 

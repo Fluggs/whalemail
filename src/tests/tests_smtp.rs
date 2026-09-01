@@ -3,7 +3,7 @@ mod tests_smtp {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
     use tokio::net::TcpStream;
-    use crate::smtp::smtp::{Smtp2, StateKind};
+    use crate::smtp::server::{Smtp2, StateKind};
     use crate::smtp::envelope::MailAddress;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};

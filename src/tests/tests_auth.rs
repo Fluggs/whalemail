@@ -3,7 +3,7 @@ mod tests_auth {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
     use tokio::net::TcpStream;
-    use crate::smtp::smtp::Smtp2;
+    use crate::smtp::server::Smtp2;
     use crate::tests::test::expect_msg;
     use crate::tests::test::test::{ehlo_msg, test_setup};
 

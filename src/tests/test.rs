@@ -56,7 +56,7 @@ pub mod test {
     use crate::userdb::drivers::mock_db::MockDB;
     use crate::config::Config;
     use crate::net::IO;
-    use crate::smtp::smtp::{ehlo_response, Smtp2};
+    use crate::smtp::server::{ehlo_response, Smtp2};
     use crate::maildir::Storage;
     use crate::tests::test::{SmtpTest};
 

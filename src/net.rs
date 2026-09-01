@@ -6,7 +6,7 @@ use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
-use crate::smtp::smtp::{Smtp2, StateKind};
+use crate::smtp::server::{Smtp2, StateKind};
 use crate::maildir::Storage;
 
 pub trait IO: AsyncRead + AsyncWrite + Unpin {}

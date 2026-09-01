@@ -14,7 +14,7 @@ use regex::Regex;
 use tokio::io;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::IO;
-use crate::smtp::smtp::ConnectionWriter;
+use crate::smtp::server::ConnectionWriter;
 use crate::user::User;
 
 static MECHANISMS: &[Mechanism] = &[plain::PLAIN, login::LOGIN];
