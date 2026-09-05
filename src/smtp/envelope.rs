@@ -80,4 +80,14 @@ impl Envelope {
             uuid: Uuid::new_v4(),
         }
     }
+    
+    #[cfg(test)]
+    pub(crate) fn dummy() -> Self {
+        Self {
+            sender: MailAddress::mock(),
+            recipients: Vec::new(),
+            body: String::new(),
+            uuid: Uuid::new_v4(),
+        }
+    }
 }

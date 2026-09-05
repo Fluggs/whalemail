@@ -6,6 +6,7 @@ use std::{fs, io};
 use std::sync::Arc;
 use log::debug;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
+use crate::config::Config;
 
 #[derive(Debug)]
 struct CertErr {
@@ -119,8 +120,9 @@ pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) 
     TlsAcceptor::from(Arc::new(server_config))
 }
 
-pub(crate) fn build_tls_connector(cert_dir: String, trusted_ca_cert_dir: String) -> TlsConnector {
-
+pub(crate) fn build_tls_connector(config: &Config) -> TlsConnector {
+    let cert_dir = config.cert_dir.clone().expect("TLS certificate directory not configured");
+    let trusted_ca_cert_dir = config.trusted_ca_cert_dir.clone().expect("TLS root cert directory not configured");
     let root_cert_store = read_ca_certs(trusted_ca_cert_dir).expect("Error reading ca cert dir");
 
     debug!("Root cert store: {:?}", root_cert_store);

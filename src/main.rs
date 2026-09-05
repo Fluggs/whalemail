@@ -28,7 +28,8 @@ mod user;
 mod tests {
     pub(crate) mod test;
     mod tests_auth;
-    mod tests_smtp;
+    mod tests_server;
+    mod tests_client;
 }
 
 use tokio::net::{TcpListener, TcpStream};

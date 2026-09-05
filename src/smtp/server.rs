@@ -118,6 +118,7 @@ impl<T: IO> ConnectionWriter<T> {
         }
     }
 }
+
 struct BadCommandError {}
 
 impl BadCommandError {

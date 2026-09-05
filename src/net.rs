@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::str;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
 use crate::smtp::server::{SmtpServer, StateKind};
@@ -19,10 +20,10 @@ enum Either<T: IO> {
 }
 
 impl<T: IO> Either<T> {
-    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    async fn read_into(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Either::Server(server) => server.connhandler_mut().read(buf).await,
-            Either::Client(client) => client.connhandler_mut().read(buf).await
+            Either::Server(server) => server.connhandler_mut().read_into(buf).await,
+            Either::Client(client) => client.connhandler_mut().read_into(buf).await
         }
     }
     
@@ -30,27 +31,41 @@ impl<T: IO> Either<T> {
         match self {
             Either::Server(server) => server.handle(input).await
                 .and_then(|(server, state_kind)| Ok((Either::Server(server), state_kind))),
-            Either::Client(client) => client.handle(input).await
+            Either::Client(client) => client.step(input).await
                 .and_then(|(client, state_kind)| Ok((Either::Client(client), state_kind))),
         }
     }
 }
 
 pub struct ConnectionHandler<T: IO> {
-    socket: T,
+    pub(crate) socket: T,
     pub(crate) addr: SocketAddr,
 }
 
 impl<T: IO> ConnectionHandler<T> {
-    pub fn new<'a> (socket: T, addr: SocketAddr) -> ConnectionHandler<T> {
+    pub(crate) fn new<'a> (socket: T, addr: SocketAddr) -> ConnectionHandler<T> {
         ConnectionHandler {
             socket,
             addr,
         }
     }
+    
+    pub(crate) async fn connect(host: &String) -> io::Result<ConnectionHandler<TcpStream>> {
+        let sock = TcpStream::connect(host).await?;
+        let addr = sock.peer_addr()?;
+        Ok(ConnectionHandler::new(sock, addr))
+    }
 
-    async fn read(&mut self, buf: & mut [u8]) -> io::Result<usize> {
+    pub(crate) async fn read_into(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.socket.read(buf).await
+    }
+    
+    pub(crate) async fn read(&mut self) -> io::Result<String> {
+        let mut buf = [0; 4096];
+        match self.read_into(&mut buf).await? {
+            0 => Ok(String::new()),
+            n => Ok(String::from(String::from_utf8_lossy(&buf[..n])))
+        }
     }
     
     pub(crate) async fn server_loop(self, config: Config, user_db: UserDBMtx) -> io::Result<()> {
@@ -75,7 +90,7 @@ impl<T: IO> ConnectionHandler<T> {
         loop {
 
             let mut buf = [0; 4096];
-            match smtp.read(&mut buf).await? {
+            match smtp.read_into(&mut buf).await? {
                 0 => {
                     info!("Connection closed by client.");
                     break
