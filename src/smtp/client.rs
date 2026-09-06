@@ -45,7 +45,7 @@ static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
 });
 
 
-enum Connection {
+pub(crate) enum Connection {
     TLS(GreetingState<TlsStream<TcpStream>>),
     TCP(GreetingState<TcpStream>)
 }

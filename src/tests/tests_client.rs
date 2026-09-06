@@ -8,7 +8,7 @@ mod tests_client {
     #[tokio::test]
     async fn test_host_2() {
         let config = Config::mock();
-        SmtpClient::<TcpStream>::build_connection(&config, Envelope::dummy(), MailAddress::new("mailmail@gmail.com").unwrap())
+        SmtpClient::<TcpStream>::discover_connection(&config, MailAddress::new("mailmail@gmail.com").unwrap())
             .await
             .unwrap();
         assert!(false);
