@@ -20,6 +20,8 @@ static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
 static MSG_MAILBOX_UNAVAILABLE: &str = "450 Requested mail action not taken: mailbox unavailable\r\n";
 static MSG_BAD_COMMAND: &str = "500 Unrecognized command\r\n";
 static MSG_UNAUTHORIZED: &str = "530 5.7.0 Authentication required\r\n";
+static TRANSPARENCY_ERROR_NO_NL_END: &str = "500 Syntax error: Invalid mail body terminator: <CR><LF>.\r\n";
+static TRANSPARENCY_UNEXPECTED_END: &str = "500 Syntax error: <CR><LF>.<CR><LF> at unexpected position\r\n";
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
 pub(crate) enum CommandVerb {
@@ -45,6 +47,25 @@ pub enum StateKind {
 pub(crate) struct Command {
     pub(crate) verb: Option<CommandVerb>,
     pub(crate) message: String,
+}
+
+#[derive(Debug)]
+pub(crate) enum TransparencySyntaxError {
+    NoNewlineMailEnd,
+    MailEndAtUnexpectedPosition,
+}
+
+impl TransparencySyntaxError {
+    async fn respond<T: IO>(&self, writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
+        match self {
+            TransparencySyntaxError::NoNewlineMailEnd => {
+                writer.send(TRANSPARENCY_ERROR_NO_NL_END.to_string()).await
+            }
+            TransparencySyntaxError::MailEndAtUnexpectedPosition => {
+                writer.send(TRANSPARENCY_UNEXPECTED_END.to_string()).await
+            }
+        }
+    }
 }
 
 impl fmt::Display for Command {
@@ -514,7 +535,7 @@ impl RcptState {
     }
 }
 
-struct DataState {
+pub(crate) struct DataState {
     user_db: UserDBMtx,
     sender: MailAddress,
     is_local_sender: bool,
@@ -559,6 +580,12 @@ impl DataState {
     async fn delivery_error_response<T: IO>(writer: &mut ConnectionWriter<T>) -> Result<(), io::Error> {
         writer.send(MSG_MAILBOX_UNAVAILABLE.to_string()).await
     }
+
+    fn contains_mail_end(s: &String) -> bool {
+        s.starts_with(".\r\n")
+        || s.contains("\r\n.\r\n")
+        || s.ends_with("\r\n.")
+    }
     
     /**
     Handles incoming data after a DATA command
@@ -570,24 +597,37 @@ impl DataState {
         cmd: Command) 
     -> Result<SmtpState, io::Error> {
         debug!("Mail!: {}", cmd.message);
-        let mail_end = self.decode_transparency(cmd.message);
-        match mail_end {
-            true => {
-                self.body_finished = true;
-                let mail = Envelope::new(self.sender, self.recipients, self.mail_body);
-                match Self::deliver_mail(storage, self.user_db.clone(), &mail).await {
-                    Ok(()) => {
-                        writer.send("250 OK\r\n".to_string()).await?;
-                        Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
-                    },
-                    Err(err) => {
-                        debug!("Mail delivery error: {:?}", err);
-                        Self::delivery_error_response(writer).await?;
-                        Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized, self.is_local_sender)))
-                    }
-                }
+
+        match Self::contains_mail_end(&cmd.message) {
+            false => {
+                self.mail_body.push_str(cmd.message.as_str());
+                return Ok(SmtpState::DATA(self));
             },
-            false => Ok(SmtpState::DATA(self))
+            true => {
+                self.mail_body.push_str(cmd.message.as_str());
+                self.body_finished = true;
+                self.mail_body = match Self::decode_transparency(self.mail_body.as_str()) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        err.respond(writer).await?;
+                        self.mail_body = String::new();
+                        return Ok(SmtpState::DATA(self));
+                    }
+                };
+            }
+        }
+
+        let mail = Envelope::new(self.sender, self.recipients, self.mail_body);
+        match Self::deliver_mail(storage, self.user_db.clone(), &mail).await {
+            Ok(()) => {
+                writer.send("250 OK\r\n".to_string()).await?;
+                Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
+            },
+            Err(err) => {
+                debug!("Mail delivery error: {:?}", err);
+                Self::delivery_error_response(writer).await?;
+                Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized, self.is_local_sender)))
+            }
         }
     }
 
@@ -620,84 +660,67 @@ impl DataState {
 
         Ok(())
     }
-    
+
     /**
-    Decodes mails as per transparency procedure in RFC5321#4.5.2 and pushes the result to Smtp.mail.
+    Decodes mail body `s` as per transparency procedure in RFC5321#4.5.2.
     */
-    pub(crate) fn decode_transparency(&mut self, s: String) -> bool {
-        debug!("Decoding transparency for \"{s}\" of length {}", s.len());
-        let mut buf: Vec<&str> = Vec::new();
-        let mut capacity = 0;
-        let mut has_changed = false;
-
-        // Should be impossible
+    pub(crate) fn decode_transparency(s: &str) -> Result<String, TransparencySyntaxError> {
         if s.len() == 0 {
-            return false;
+            return Ok(String::new());
         }
 
-        // Catch empty mail; treat period on first line as end of mail
-        match s.starts_with(".\r\n") {
-            true => {
-                self.mail_body = ".\r\n".to_string();
-                return true;
+        let policy_allow_rnp_end = true;
+        let mut has_rnp_end = false;
+
+        let mut chunks: Vec<&str> = s.split("\r\n.").into_iter().collect();
+        debug!("Chunks: '{:?}'", chunks);
+        let last = chunks.len() - 1;
+        if chunks[last].eq("\r\n") {
+            chunks[last] = ".\r\n";
+        } else {
+            debug!("Last chunk: {}", chunks[last]);
+            if !policy_allow_rnp_end {
+                return Err(TransparencySyntaxError::NoNewlineMailEnd)
             }
-            false => {}
+            has_rnp_end = true;
         }
 
-        // Find and store \r\n.\r\n positions
-        let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {
-            Some(m) => (m.start(), m.end(), true),
-            None => (s.len() - 1, s.len(), false)
-        };
+        let mut capacity: usize = 0;
+        for chunk in &chunks {
+            capacity += chunk.len() + 1;
+        }
+        if has_rnp_end {
+            capacity += 1;
+        }
 
-        debug!("mail_end_start: {}, mail_end_end: {}, mail_is_complete: {}", mail_end_start, mail_end_end, mail_is_complete);
-
-
-        // Handle transparency on first line
-        let mut chunk_start = match s.starts_with(".") {
-            true => {
-                has_changed = true;
-                1
-            },
-            false => 0
-        };
-
-        debug!("chunk start: {}", chunk_start);
-
-        // Write every chunk between two \r\n. (RE.period_linestart) into buf to assemble the new body later
-        let mut end_loop = false;
-        while !end_loop {
-
-            let chunk_end = match RE.period_linestart.find(&s[chunk_start..mail_end_start]) {
-                Some(m) => {
-                    has_changed = true;
-                    m.start() + "\r\n".len() + 1
+        let mut r = String::new();
+        let mut first = true;
+        r.reserve(capacity);
+        for chunk in chunks {
+            match first {
+                true => {
+                    if chunk.starts_with(".") {
+                        r += &chunk[1..chunk.len()];
+                    } else {
+                        r += chunk;
+                    }
                 },
-                None => {
-                    end_loop = true;
-                    mail_end_end
+                false => {
+                    if chunk.starts_with("\r\n") {
+                        return Err(TransparencySyntaxError::MailEndAtUnexpectedPosition);
+                    }
+                    r += "\r\n";
+                    r += chunk;
                 }
-            };
-
-            // min() is an ugly fix, todo find actual bug
-            buf.push(&s[chunk_start..min(chunk_end, s.len() -1)]);
-            capacity += chunk_end - chunk_start;
-            debug!("Recognized mail part with len {}:\n{:?}", chunk_end - chunk_start, &s[chunk_start..chunk_end]);
-
-            chunk_start = chunk_end + ".".len();
+            }
+            first = false;
         }
 
-        match has_changed {
-            true => {
-                self.mail_body.reserve(capacity);
-                for el in buf {
-                    self.mail_body += el;
-                }
-            },
-            false => self.mail_body.push_str(s.as_str())
-        };
+        if has_rnp_end {
+            r.push_str(".");
+        }
 
-        mail_is_complete
+        Ok(r)
     }
 }
 
@@ -981,12 +1004,5 @@ impl<T: IO> SmtpServer<T> {
     #[cfg(test)]
     pub(crate) fn config(&self) -> &Config {
         &self.config
-    }
-    
-    #[cfg(test)]
-    pub(crate) fn decode_transparency(&self, s: String) -> (bool, String) {
-        let mut data = DataState::mock(self.user_db.clone());
-        let r = data.decode_transparency(s);
-        (r, data.mail_body)
     }
 }
