@@ -1,4 +1,5 @@
 use std::{fmt, io, sync};
+use std::cmp::min;
 use std::fmt::Debug;
 use strum::{Display, EnumString};
 use strum_macros::{IntoStaticStr};
@@ -60,7 +61,7 @@ impl Command {
     fn new(s: String) -> Command {
         let mut split = s.trim().split(" ");
         let verb = match split.next() {
-            Some(first) => first.parse::<CommandVerb>().ok(),
+            Some(first) => first[0..min(first.len(), 10)].to_ascii_uppercase().parse::<CommandVerb>().ok(),
             None => None
         };
 
@@ -88,12 +89,16 @@ struct Patterns {
     mail_end: Regex,
     period_linestart: Regex,
     auth_cmd: Regex,
+    mail_cmd: Regex,
+    rcpt_cmd: Regex,
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
     period_linestart: Regex::new(r"\r\n\.").unwrap(),
     auth_cmd: Regex::new(r"AUTH ([0-9A-Za-z_-]*)\s*([^$]+?)?\s*$").unwrap(),
+    mail_cmd: Regex::new(r"^(?i)MAIL FROM:<([^>]+)>\r\n$").unwrap(),
+    rcpt_cmd: Regex::new(r"^(?i)RCPT TO:<([^>]+)>\r\n$").unwrap(),
 });
 
 pub struct ConnectionWriter<T: IO> {
@@ -309,7 +314,7 @@ impl Debug for AuthState {
 Parses an address from an RCPT or MAIL command.
 Returns the contained address or `BadCommandError` on error.
 */
-fn parse_address_message_by_re(re: Regex, cmd: &Command) -> Result<String, BadCommandError> {
+fn parse_address_message_by_re(re: &Regex, cmd: &Command) -> Result<String, BadCommandError> {
     let parse = match re.captures(&cmd.message) {
         Some(capture) => match capture.get(1) {
             Some(rcpt) => Some(rcpt.as_str().to_string()),
@@ -340,7 +345,7 @@ impl MailFromState {
         debug!("Handling MAIL: {}", cmd);
         
         let sender = match parse_address_message_by_re(
-            Regex::new(r"^MAIL FROM:<([^>]+)>\r\n$").unwrap(), &cmd
+            &RE.mail_cmd, &cmd
         ) {
             Ok(s) => s,
             Err(bad_cmd) => {
@@ -478,7 +483,7 @@ impl RcptState {
     async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, hostname: &str, cmd: Command)
         -> Result<(), Result<RcptError, io::Error>> {
         let recipient = parse_address_message_by_re(
-            Regex::new(r"^RCPT TO:<([^>]+)>\r\n$").unwrap(), &cmd
+            &RE.rcpt_cmd, &cmd
         )
             .or_else(|_| Err(Ok(RcptError::BadCommand)))?;
         let mut recipient = MailAddress::new(recipient.as_str())

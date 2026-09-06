@@ -181,6 +181,18 @@ mod tests_smtp {
     }
 
     #[tokio::test]
+    async fn test_mailfrom_case_success() {
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+    }
+
+    #[tokio::test]
     async fn test_mailfrom_bad_command() {
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
@@ -248,6 +260,18 @@ mod tests_smtp {
 
         (s, _) = s.handle("MAIL FROM:<fsdfdsf>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "450 Invalid host\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_mailfrom_case_insensitive() {
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL From:<sender@test.org>\r\n".to_string()).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
     }
     
     #[tokio::test]
@@ -325,6 +349,27 @@ mod tests_smtp {
 
         (s, _) = s.handle("RCPT TO: <mail@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "500 Unrecognized command\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_rcpt_case_insensitive() {
+        let sender = "sender@test.org";
+        let sender_addr = MailAddress::new(sender).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
+
+        let mut s: SmtpServer<TcpStream> = test_setup().await;
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
+
+        expect_msg!(s, "220 hi\r\n");
+
+        (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
+        expect_msg!(s, ehlo_msg(&s));
+
+        (s, _) = s.handle("MAIL FROM:<".to_string() + sender + ">\r\n").await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
+
+        (s, _) = s.handle(format!("Rcpt To:<{}>\r\n", rcpt.address.as_str())).await.unwrap();
+        expect_msg!(s, "250 OK\r\n");
     }
 
     #[tokio::test]
