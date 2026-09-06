@@ -625,7 +625,7 @@ impl DataState {
     Decodes mails as per transparency procedure in RFC5321#4.5.2 and pushes the result to Smtp.mail.
     */
     pub(crate) fn decode_transparency(&mut self, s: String) -> bool {
-        debug!("Decoding transparency for \"{s}\"");
+        debug!("Decoding transparency for \"{s}\" of length {}", s.len());
         let mut buf: Vec<&str> = Vec::new();
         let mut capacity = 0;
         let mut has_changed = false;
@@ -679,7 +679,8 @@ impl DataState {
                 }
             };
 
-            buf.push(&s[chunk_start..chunk_end]);
+            // min() is an ugly fix, todo find actual bug
+            buf.push(&s[chunk_start..min(chunk_end, s.len() -1)]);
             capacity += chunk_end - chunk_start;
             debug!("Recognized mail part with len {}:\n{:?}", chunk_end - chunk_start, &s[chunk_start..chunk_end]);
 

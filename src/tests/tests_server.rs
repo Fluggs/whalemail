@@ -480,7 +480,14 @@ mod tests_smtp {
         assert_eq!(mail_body, expected);
     }
 
-
-
-
+    #[tokio::test]
+    async fn test_dtp_dhl2() {
+        let s: SmtpServer<TcpStream> = test_setup().await;
+        let input = "h:100%\">\r\n    <tr style=3D\"padding:0;text-align:left;vertical-align:top\">\r\n        <th class=3D\"callout-inner secondary\"\r\n            style=3D\"Margin:0;background:#fff;border:none;color:#323232;fon=\r\nt-family:Delivery,Arial,sans-serif;font-size:14px;font-weight:400;line-heig=\r\nht:1.6;margin:0;padding:0 50px;text-align:left;width:100%\">\r\n            <table role=3D\"presentation\" class=3D\"row\"\r\n                   style=3D\"border-collapse:collapse;border-spacing:0;displ=\r\nay:table;font-family:Delivery,Arial,sans-serif;padding:0;position:relative;=\r\ntext-align:left;vertical-align:top;width:100%\">\r\n                <tbody>\r\n                <tr style=3D\"padding:0;text-align:left;vertical-align:top\">\r\n                    <th class=3D\"small-12 large-12 columns first last\"\r\n                        style=3D\"Margin:0 auto;color:#505050;font-family:De=\r\nlivery,Arial,sans-serif;font-size:14px;font-weight:400;line-height:1.6;marg=\r\nin:0 auto;padding:0;padding-bottom:15px;padding-left:15px;padding-right:15p=\r\nx;text-align:left;width:617px\">\r\n                        <table role=3D\"presentation\"\r\n                            style=3D\"border-collapse:collapse;border-spacin=\r\ng:0;font-family:Delivery,Arial,sans-serif;padding:0;text-align:left;vertica=\r\nl-align:top;width:100%\">\r\n                            <tr style=3D\"padding:0;text-align:left;vertical=\r\n-align:top\">\r\n                                <th style=3D\"Margin:0;color:#505050;font-fa=\r\nmily:Delivery,Arial,sans-serif;font-size:14px;font-weight:400;line-height:1=\r\n.";
+        //let expected = "t\r\n.".to_string();
+        let (result, mail_body) = s.decode_transparency(input.to_string());
+        assert_eq!(result, false);
+        //assert_eq!(mail_body, expected);
+        assert!(false);
+    }
 }
