@@ -469,4 +469,18 @@ mod tests_smtp {
         assert_eq!(result, false);
         assert_eq!(mail_body, expected);
     }
+
+    #[tokio::test]
+    async fn test_dtp_dhl() {
+        let s: SmtpServer<TcpStream> = test_setup().await;
+        let input = "t\r\n.";
+        let expected = "t\r\n.".to_string();
+        let (result, mail_body) = s.decode_transparency(input.to_string());
+        assert_eq!(result, false);
+        assert_eq!(mail_body, expected);
+    }
+
+
+
+
 }

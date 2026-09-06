@@ -630,6 +630,11 @@ impl DataState {
         let mut capacity = 0;
         let mut has_changed = false;
 
+        // Should be impossible
+        if s.len() == 0 {
+            return false;
+        }
+
         // Catch empty mail; treat period on first line as end of mail
         match s.starts_with(".\r\n") {
             true => {
@@ -642,8 +647,10 @@ impl DataState {
         // Find and store \r\n.\r\n positions
         let (mail_end_start, mail_end_end, mail_is_complete) = match RE.mail_end.find(&s) {
             Some(m) => (m.start(), m.end(), true),
-            None => (s.len(), s.len(), false)
+            None => (s.len() - 1, s.len(), false)
         };
+
+        debug!("mail_end_start: {}, mail_end_end: {}, mail_is_complete: {}", mail_end_start, mail_end_end, mail_is_complete);
 
 
         // Handle transparency on first line
@@ -655,7 +662,9 @@ impl DataState {
             false => 0
         };
 
-        // Write every chunk between two \r\n. into buf to assemble the new body later
+        debug!("chunk start: {}", chunk_start);
+
+        // Write every chunk between two \r\n. (RE.period_linestart) into buf to assemble the new body later
         let mut end_loop = false;
         while !end_loop {
 
