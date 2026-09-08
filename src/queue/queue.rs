@@ -25,7 +25,8 @@ impl Queue {
         }))
     }
     
-    pub(crate) fn add(&mut self, envelope: Envelope, recipient: MailAddress) {
+    pub(crate) fn add(&mut self, envelope: &Envelope, recipient: MailAddress) {
+        let envelope = envelope.clone();
         self.entries.push(Entry {
             envelope,
             recipient,
@@ -37,7 +38,7 @@ impl Queue {
             Some(entry) => entry,
             None => return
         };
-        
+
         // todo bounce report
         let _ = self.deliver(entry);
     }

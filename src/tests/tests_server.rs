@@ -2,7 +2,9 @@
 mod tests_smtp {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
+    use log::debug;
     use tokio::net::TcpStream;
+    use crate::config::{hostname, Hostname};
     use crate::smtp::server::{DataState, SmtpServer, StateKind};
     use crate::smtp::envelope::MailAddress;
     use crate::tests::test::expect_msg;
@@ -36,11 +38,11 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_helo_mail() {
         let sender = "sender@test.org";
-        let sender_addr = MailAddress::new(sender).unwrap();
-        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
+        let sender_addr = MailAddress::new(sender, &hostname()).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap();
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap());
 
         expect_msg!(s, "220 hi\r\n");
 
@@ -72,11 +74,11 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_ehlo_mail() {
         let sender = "sender@test.org";
-        let sender_addr = MailAddress::new(sender).unwrap();
-        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
+        let sender_addr = MailAddress::new(sender, &hostname()).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap();
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap());
 
         expect_msg!(s, "220 hi\r\n");
 
@@ -110,7 +112,7 @@ mod tests_smtp {
         let mailct_1 = "<mailblob> blob blob\r\n".to_string();
         let mailct_2 = "more blob\r\n.\r\n".to_string();
         let mut s: SmtpServer<TcpStream> = test_setup().await;
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap());
 
         expect_msg!(s, "220 hi\r\n");
 
@@ -120,7 +122,7 @@ mod tests_smtp {
         (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
-        (s, _) = s.handle("RCPT TO:<rcv@whalemail.net>\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("RCPT TO:<rcv@whalemail.tld>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
         (s, _) = s.handle("DATA\r\n".to_string()).await.unwrap();
@@ -143,8 +145,8 @@ mod tests_smtp {
 
     #[tokio::test]
     async fn test_helo_multiple_rcpt() {
-        let rcpt1 = MailAddress::new("rcv1@whalemail.net").unwrap();
-        let rcpt2 = MailAddress::new("rcv2@whalemail.net").unwrap();
+        let rcpt1 = MailAddress::new("rcv1@whalemail.tld", &hostname()).unwrap();
+        let rcpt2 = MailAddress::new("rcv2@whalemail.tld", &hostname()).unwrap();
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         expect_msg!(s, "220 hi\r\n");
 
@@ -217,8 +219,8 @@ mod tests_smtp {
         (s, _) = s.handle("AUTH PLAIN sender\0sender\0pineapple!\r\n".to_string()).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
 
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
-        (s, _) = s.handle("MAIL FROM:<sender@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
+        (s, _) = s.handle("MAIL FROM:<sender@whalemail.tld>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
         assert!(s.is_local_sender());
     }
@@ -244,8 +246,8 @@ mod tests_smtp {
         (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"pineapple!").as_ref())).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
 
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
-        (s, _) = s.handle("MAIL FROM:<sender@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
+        (s, _) = s.handle("MAIL FROM:<sender@whalemail.tld>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
         assert!(s.is_local_sender());
     }
@@ -282,8 +284,8 @@ mod tests_smtp {
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
-        (s, _) = s.handle("MAIL FROM:<sender@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
+        (s, _) = s.handle("MAIL FROM:<sender@whalemail.tld>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "530 5.7.0 Authentication required\r\n");
     }
 
@@ -300,8 +302,8 @@ mod tests_smtp {
         (s, _) = s.handle("AUTH PLAIN anothersender\0anothersender\0pineapple!\r\n".to_string()).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
 
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
-        (s, _) = s.handle("MAIL FROM:<sender@whalemail.net>\r\n".to_string()).await.unwrap();
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
+        (s, _) = s.handle("MAIL FROM:<sender@whalemail.tld>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "530 5.7.0 Authentication required\r\n");
     }
 
@@ -328,7 +330,7 @@ mod tests_smtp {
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
         (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
 
@@ -354,11 +356,11 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_rcpt_case_insensitive() {
         let sender = "sender@test.org";
-        let sender_addr = MailAddress::new(sender).unwrap();
-        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
+        let sender_addr = MailAddress::new(sender, &hostname()).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap();
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
-        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
+        s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap());
 
         expect_msg!(s, "220 hi\r\n");
 
@@ -375,9 +377,9 @@ mod tests_smtp {
     #[tokio::test]
     async fn test_mail_delivery_error() {
         let sender = "sender@test.org";
-        let sender_addr = MailAddress::new(sender).unwrap();
-        let rcpt = MailAddress::new("rcv@whalemail.net").unwrap();
-        let another_rcpt = MailAddress::new("another_rcv@whalemail.net").unwrap();
+        let sender_addr = MailAddress::new(sender, &hostname()).unwrap();
+        let rcpt = MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap();
+        let another_rcpt = MailAddress::new("another_rcv@whalemail.tld", &hostname()).unwrap();
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_user("rcv", "");

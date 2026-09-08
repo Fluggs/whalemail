@@ -12,6 +12,7 @@ use rsasl::property::{AuthId, AuthzId, Password};
 use log::{debug, info};
 use regex::Regex;
 use tokio::io;
+use crate::config::Hostname;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::IO;
 use crate::smtp::server::ConnectionWriter;
@@ -63,7 +64,7 @@ Represents an authenticated and authorized user/identity.
 #[derive(Clone)]
 #[derive(Debug)]
 pub struct Authorized {
-    pub(crate) hostname: String,
+    pub(crate) hostname: Hostname,
     pub(crate) identity: String,
     pub(crate) username: String,
 }
@@ -76,7 +77,7 @@ impl Authorized {
     Returns `Error::AuthUnsuccessful` when mandatory input (username, password) is missing or when
     identity and username are different.
     */
-    fn new(hostname: String, identity: Option<&str>, username: Option<&str>, password: Option<&[u8]>) -> Result<(Authorized, String), Error> {
+    fn new(hostname: Hostname, identity: Option<&str>, username: Option<&str>, password: Option<&[u8]>) -> Result<(Authorized, String), Error> {
         let (username, password): (String, String) = match (username, password) {
             (None, _) | (_, None) => {
                 return Err(Error::AuthUnsuccessful);
@@ -188,7 +189,7 @@ impl Auth {
     */
     pub(crate) fn new(
         user_db: UserDBMtx,
-        hostname: String,
+        hostname: Hostname,
         selected: String,
         initial_step: Option<String>
     ) -> Result<Auth, Error> {
@@ -330,7 +331,7 @@ impl Auth {
 
 struct Callback {
     user_db: UserDBMtx,
-    hostname: String,
+    hostname: Hostname,
 }
 
 impl SessionCallback for Callback {

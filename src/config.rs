@@ -1,6 +1,32 @@
 use std::fmt::{Display, Formatter};
 use ini::Ini;
 
+#[derive(Clone)]
+#[derive(PartialEq)]
+#[derive(Debug)]
+pub(crate) struct Hostname(String);
+
+impl PartialEq<String> for Hostname {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == *other
+    }
+}
+
+impl Hostname {
+    pub(crate) fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub(crate) fn as_string_ref(&self) -> &String {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn hostname() -> Hostname {
+    Hostname("whalemail.tld".to_string())
+}
+
 #[derive(Debug)]
 pub(crate) enum ConfigError {
     MissingConfig(String),
@@ -23,6 +49,7 @@ pub(crate) struct MaildirConfig {
 
 #[derive(Clone)]
 pub(crate) struct UserDBConfig {
+    pub(crate) hostname: Hostname,
     pub(crate) postgres_database: String,
     pub(crate) postgres_username: String,
     pub(crate) postgres_password: String,
@@ -30,7 +57,7 @@ pub(crate) struct UserDBConfig {
 
 #[derive(Clone)]
 pub(crate) struct Config {
-    pub(crate) hostname: String,
+    pub(crate) hostname: Hostname,
     pub(crate) bind_ip: String,
     pub(crate) bind_ip_tls: String,
     pub(crate) cert_dir: Option<String>,
@@ -46,8 +73,9 @@ impl Config {
     pub(crate) fn load() -> Result<Config, ConfigError> {
         let mut conf = Ini::load_from_file(CONFIG_FILE).expect(format!("Loading {} failed", CONFIG_FILE).as_str());
         let conf = conf.with_section::<String>(None);
+        let hostname = Hostname(conf.get("hostname").or(Some("whalemail.tld")).unwrap().to_string());
         Ok(Config {
-            hostname: conf.get("hostname").or(Some("whalemail.tld")).unwrap().to_string(),
+            hostname: hostname.clone(),
             bind_ip: conf.get("bind_ip").or(Some("127.0.0.1:25")).unwrap().to_string(),
             bind_ip_tls: conf.get("bind_ip_tls").or(Some("127.0.0.1:465")).unwrap().to_string(),
             cert_dir: conf.get("cert_dir").and_then(|s| Some(s.to_string())),
@@ -59,6 +87,7 @@ impl Config {
                     .to_string()
             },
             userdb_config: UserDBConfig {
+                hostname,
                 postgres_database: conf.get("postgres_database")
                     .ok_or(ConfigError::MissingConfig("postgres_username".to_string()))?
                     .to_string(),
@@ -75,7 +104,7 @@ impl Config {
     #[cfg(test)]
     pub(crate) fn mock() -> Config {
         Config {
-            hostname: "whalemail.net".to_string(),
+            hostname: hostname(),
             bind_ip: "0.0.0.0:25".to_string(),
             bind_ip_tls: "0.0.0.0:465".to_string(),
             cert_dir: None,
@@ -83,6 +112,7 @@ impl Config {
             log_level: "debug".to_string(),
             maildir_config: MaildirConfig { user_maildir_path: String::new() },
             userdb_config: UserDBConfig {
+                hostname: hostname(),
                 postgres_database: String::new(),
                 postgres_username: String::new(),
                 postgres_password: String::new(),

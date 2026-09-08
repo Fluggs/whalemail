@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
+use log::debug;
 use uuid::Uuid;
+use crate::config::Hostname;
 use crate::userdb::userdb::UserDBMtx;
 
 #[derive(Debug)]
@@ -14,18 +16,25 @@ pub(crate) struct MailAddress {
     
     // Cache for locality check against user database
     is_local_mailbox: Option<bool>,
+    is_local_responsibility: bool,
 }
 
 impl MailAddress {
-    pub(crate) fn new(s: &str) -> Result<Self, InvalidMailAddress> {
+    pub(crate) fn new(s: &str, local_responsibility_hostname: &Hostname) -> Result<Self, InvalidMailAddress> {
         let split: Vec<&str> = s.split("@").collect();
         match split.len() {
-            2 => Ok(MailAddress {
+            2 => {
+                let domain = split[1].to_string();
+                let is_local_responsibility = local_responsibility_hostname.eq(&domain);
+                debug!("is local: {} == {} -> {}", local_responsibility_hostname.as_str(), domain, is_local_responsibility);
+                Ok(MailAddress {
                     address: s.to_string(),
                     local_part: split[0].to_string(),
-                    domain: split[1].to_string(),
+                    domain,
                     is_local_mailbox: None,
-                }),
+                    is_local_responsibility,
+                })
+            },
             _ => Err(InvalidMailAddress { })
         }
     }
@@ -40,14 +49,19 @@ impl MailAddress {
             }
         }
     }
+
+    pub(crate) fn is_local_responsibility(&self) -> bool {
+        self.is_local_responsibility
+    }
     
     #[cfg(test)]
-    pub(crate) fn mock() -> MailAddress {
+    pub(crate) fn mock(is_local_responsibility: bool) -> MailAddress {
         MailAddress {
             address: String::new(),
             local_part: String::new(),
             domain: String::new(),
             is_local_mailbox: None,
+            is_local_responsibility,
         }
     }
 }
@@ -64,6 +78,8 @@ impl PartialEq for MailAddress {
     }
 }
 
+//todo rework queue so we are able to remove this clone derive
+#[derive(Clone)]
 pub(crate) struct Envelope {
     pub(crate) sender: MailAddress,
     pub(crate) recipients: Vec<MailAddress>,
@@ -84,7 +100,7 @@ impl Envelope {
     #[cfg(test)]
     pub(crate) fn dummy() -> Self {
         Self {
-            sender: MailAddress::mock(),
+            sender: MailAddress::mock(false),
             recipients: Vec::new(),
             body: String::new(),
             uuid: Uuid::new_v4(),

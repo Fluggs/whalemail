@@ -4,16 +4,18 @@ use std::time::{Instant, SystemTime};
 use camino::Utf8PathBuf;
 use crate::smtp::envelope::{Envelope, MailAddress};
 use log::{debug, warn};
-use crate::config::MaildirConfig;
+use crate::config::{Hostname, MaildirConfig};
+
+#[cfg(test)] use crate::config::hostname;
 
 pub(crate) struct Storage {
-    hostname: String,
+    hostname: Hostname,
     config: MaildirConfig,
     base_instant: Instant,
 }
 
 impl Storage {
-    pub(crate) fn new(hostname: String, maildir_config: MaildirConfig) -> Self {
+    pub(crate) fn new(hostname: Hostname, maildir_config: MaildirConfig) -> Self {
         Self {
             hostname,
             config: maildir_config,
@@ -24,7 +26,7 @@ impl Storage {
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
-            hostname: String::new(),
+            hostname: hostname(),
             config: MaildirConfig { user_maildir_path: String::new() },
             base_instant: Instant::now(),
         }
@@ -78,6 +80,6 @@ impl Storage {
             .duration_since(SystemTime::UNIX_EPOCH).expect("Unix time")
             .as_secs();
         let millis = Instant::now().duration_since(self.base_instant).as_millis();
-        format!("{}.{}.M{}", unixtime, self.hostname, millis).to_string()
+        format!("{}.{}.M{}", unixtime, self.hostname.as_str(), millis).to_string()
     }
 }

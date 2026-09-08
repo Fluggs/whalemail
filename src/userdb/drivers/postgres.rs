@@ -2,11 +2,12 @@ use std::sync::{Arc, Mutex};
 use log::{debug, error};
 use tokio_postgres::{Client, NoTls};
 use crate::auth::auth::Authorized;
-use crate::config::UserDBConfig;
+use crate::config::{Hostname, UserDBConfig};
 use crate::smtp::envelope::MailAddress;
 use crate::userdb::userdb::{Error, UserDBMtx, UserDB};
 
 pub(crate) struct Postgres {
+    hostname: Hostname,
     // If these are set, all authorize() calls validate against this
     client: Client,
 }
@@ -27,6 +28,7 @@ impl Postgres {
             }
         }?;
         let r = Postgres {
+            hostname: config.hostname,
             client,
         };
 
@@ -43,7 +45,7 @@ impl Postgres {
 
 impl UserDB for Postgres {
     fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error> {
-        let user_addr = MailAddress::new(authorized.username.as_str()).unwrap();
+        let user_addr = MailAddress::new(authorized.username.as_str(), &self.hostname).unwrap();
         let runtime = tokio::runtime::Handle::current();
         let rows = tokio::task::block_in_place(move ||
             runtime.block_on(self.client

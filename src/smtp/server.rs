@@ -5,7 +5,7 @@ use strum::{Display, EnumString};
 use strum_macros::{IntoStaticStr};
 use log::{debug};
 use regex::Regex;
-use crate::config::Config;
+use crate::config::{Config, Hostname};
 use crate::auth::auth;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
@@ -15,6 +15,8 @@ use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::maildir::Storage;
 use crate::queue::queue::QueueMtx;
 use crate::user::User;
+
+#[cfg(test)] use crate::config::hostname;
 
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
 static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
@@ -191,7 +193,7 @@ impl EhloState {
         format!(
             "250-{}\r\n\
             250 AUTH PLAIN LOGIN\r\n"
-            , config.hostname
+            , config.hostname.as_str()
         ).to_string()
     }
     async fn respond<T: IO>(writer: &mut ConnectionWriter<T>, config: &Config, _from: InitState) -> Result<Self, io::Error> {
@@ -247,7 +249,7 @@ impl AuthState {
         writer: &mut ConnectionWriter<T>,
         cmd: Command,
         user_db: UserDBMtx,
-        hostname: String,
+        hostname: Hostname,
         from: EhloState
     ) -> Result<AuthResult, io::Error> {
         // Parse AUTH <mech> [mech_arg]
@@ -362,7 +364,8 @@ impl MailFromState {
         writer: &mut ConnectionWriter<T>,
         user_db: UserDBMtx,
         cmd: Command,
-        from_state: SmtpState
+        from_state: SmtpState,
+        hostname: &Hostname
     ) -> Result<SmtpState, io::Error> {
         debug!("Handling MAIL: {}", cmd);
         
@@ -376,7 +379,7 @@ impl MailFromState {
             }
         };
         
-        let mut sender = match MailAddress::new(sender.as_str()) {
+        let mut sender = match MailAddress::new(sender.as_str(), hostname) {
             Ok(sender) => sender,
             Err(_) => {
                 writer.send(MSG_INVALID_HOST.to_string()).await?;
@@ -412,7 +415,7 @@ impl MailFromState {
             true => match authorized {
                 None => false,
                 Some(user) => {
-                    debug!("user: '{}' @ '{}', sender: '{}' @ '{}'", user.identity, user.hostname, sender.local_part, sender.domain);
+                    debug!("user: '{}' @ '{}', sender: '{}' @ '{}'", user.identity, user.hostname.as_str(), sender.local_part, sender.domain);
                     user.identity.eq(&sender.local_part) && user.hostname.eq(&sender.domain)
                 }
             },
@@ -441,6 +444,7 @@ impl RcptError {
 }
 
 struct RcptState {
+    hostname: Hostname,
     sender: MailAddress,
     is_local_sender: bool,
     recipients: Vec<MailAddress>,
@@ -453,11 +457,12 @@ impl RcptState {
     */
     async fn new<T: IO>(
         writer: &mut ConnectionWriter<T>,
-        hostname: &str,
+        hostname: &Hostname,
         cmd: Command,
         mut from_state: MailFromState
     ) -> Result<Self, Result<MailFromState, io::Error>> {
         let mut r = Self {
+            hostname: hostname.clone(),
             sender: from_state.sender.clone(),
             is_local_sender: from_state.is_local_sender,
             recipients: Vec::new(),
@@ -484,8 +489,8 @@ impl RcptState {
     /**
     Determines whether the client has permission to send to a recipient address.
     */
-    fn has_permission(hostname: &str, authorized: &Option<User>, rcpt: &mut MailAddress) -> bool {
-        let r = match rcpt.domain.eq(hostname) {
+    fn has_permission(hostname: &Hostname, authorized: &Option<User>, rcpt: &mut MailAddress) -> bool {
+        let r = match hostname.eq(&rcpt.domain) {
             false => match authorized {
                 None => false,
                 Some(_) => {
@@ -502,13 +507,13 @@ impl RcptState {
     /**
     Parses an RCPT command and adds the resulting recipient.
     */
-    async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, hostname: &str, cmd: Command)
+    async fn add_rcpt<T: IO>(&mut self, writer: &mut ConnectionWriter<T>, hostname: &Hostname, cmd: Command)
         -> Result<(), Result<RcptError, io::Error>> {
         let recipient = parse_address_message_by_re(
             &RE.rcpt_cmd, &cmd
         )
             .or_else(|_| Err(Ok(RcptError::BadCommand)))?;
-        let mut recipient = MailAddress::new(recipient.as_str())
+        let mut recipient = MailAddress::new(recipient.as_str(), &self.hostname)
             .map_err(|_| RcptError::InvalidMailbox)
             .or_else(|smtp_err| Err(Ok(smtp_err)))?;
         
@@ -526,8 +531,9 @@ impl RcptState {
     /**
     State rollback in case DATA command fails
     */
-    fn from(envelope: Envelope, authorized: Option<User>, is_local_sender: bool) -> RcptState {
+    fn from(hostname: Hostname, envelope: Envelope, authorized: Option<User>, is_local_sender: bool) -> RcptState {
         RcptState {
+            hostname,
             sender: envelope.sender,
             is_local_sender,
             recipients: envelope.recipients,
@@ -569,7 +575,7 @@ impl DataState {
     fn mock(user_db: UserDBMtx) -> Self {
         Self {
             user_db,
-            sender: MailAddress::mock(),
+            sender: MailAddress::mock(false),
             is_local_sender: false,
             recipients: Vec::new(),
             authorized: None,
@@ -596,6 +602,7 @@ impl DataState {
         writer: &mut ConnectionWriter<T>,
         storage: &mut Storage,
         queue: QueueMtx,
+        hostname: Hostname,
         cmd: Command) 
     -> Result<SmtpState, io::Error> {
         debug!("Mail!: {}", cmd.message);
@@ -628,20 +635,21 @@ impl DataState {
             Err(err) => {
                 debug!("Mail delivery error: {:?}", err);
                 Self::delivery_error_response(writer).await?;
-                Ok(SmtpState::RCPT(RcptState::from(mail, self.authorized, self.is_local_sender)))
+                Ok(SmtpState::RCPT(RcptState::from(hostname, mail, self.authorized, self.is_local_sender)))
             }
         }
     }
 
+
     /**
-    Attempts to deliver a mail to its recipients. Returns true only if the mail could be delivered
+    Attempts to deliver a mail to local recipients. Returns Ok(()) only if the mail could be delivered
     to all recipients.
     */
-    async fn deliver_mail(
+    async fn deliver_local_mail(
         storage: &Storage,
         user_db: UserDBMtx,
-        queue: QueueMtx,
-        envelope: &Envelope
+        envelope: &Envelope,
+        recipients: Vec<&MailAddress>
     ) -> Result<(), MailboxDeliveryError> {
         let mut mailboxes: Vec<(&MailAddress, String)> = Vec::new();
         for rcpt in &envelope.recipients {
@@ -663,6 +671,31 @@ impl DataState {
                     return Err(MailboxDeliveryError::MailboxIO(format!("{}", err)));
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    /**
+    Attempts to deliver a mail to its recipients. Returns true only if the mail could be delivered
+    to all (local) recipients.
+    */
+    async fn deliver_mail(
+        storage: &Storage,
+        user_db: UserDBMtx,
+        queue: QueueMtx,
+        envelope: &Envelope
+    ) -> Result<(), MailboxDeliveryError> {
+        let mut local_mailboxes: Vec<&MailAddress> = Vec::new();
+        for rcpt in &envelope.recipients {
+            match rcpt.is_local_responsibility() {
+                true => local_mailboxes.push(rcpt),
+                false => queue.lock().await.add(envelope, rcpt.clone())
+            }
+        }
+
+        if local_mailboxes.len() > 0 {
+            Self::deliver_local_mail(storage, user_db, envelope, local_mailboxes).await?;
         }
 
         Ok(())
@@ -867,24 +900,24 @@ impl<T: IO> SmtpServer<T> {
             }
             
             (SmtpState::HELO(helo), Some(CommandVerb::MAIL)) => {
-                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::HELO(helo))
+                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::HELO(helo), &self.config.hostname)
                     .await?
             },
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::MAIL)) => {
-                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::EHLO(ehlo))
+                MailFromState::mail_from(&mut self.conn_writer, self.user_db.clone(), cmd, SmtpState::EHLO(ehlo), &self.config.hostname)
                     .await?
             },
             
             (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {
-                RcptState::new(&mut self.conn_writer, self.config.hostname.as_str(), cmd, mail)
+                RcptState::new(&mut self.conn_writer, &self.config.hostname, cmd, mail)
                     .await
                     .and_then(|rcpt| Ok(SmtpState::RCPT(rcpt)))
                     .or_else(|res_mailfrom| Ok::<SmtpState, io::Error>(SmtpState::MAIL(res_mailfrom?)))?
             },
             
             (SmtpState::RCPT(mut rcpt), Some(CommandVerb::RCPT)) => {
-                match rcpt.add_rcpt(&mut self.conn_writer, self.config.hostname.as_str(), cmd).await {
+                match rcpt.add_rcpt(&mut self.conn_writer, &self.config.hostname, cmd).await {
                     Ok(()) => Ok(SmtpState::RCPT(rcpt)),
                     Err(Ok(rcpt_err)) => {
                         rcpt_err.respond(&mut self.conn_writer).await?;
@@ -901,7 +934,7 @@ impl<T: IO> SmtpServer<T> {
             },
             
             (SmtpState::DATA(state), _) => {
-                state.receive_data(&mut self.conn_writer, &mut self.storage, self.queue.clone(), cmd).await?
+                state.receive_data(&mut self.conn_writer, &mut self.storage, self.queue.clone(), self.config.hostname.clone(), cmd).await?
             },
             
             (SmtpState::DATACOMPLETE(state), Some(CommandVerb::QUIT)) => {
