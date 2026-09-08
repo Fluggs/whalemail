@@ -34,7 +34,7 @@ impl MailAddress {
         match self.is_local_mailbox {
             Some(res) => res,
             None => {
-                let r = user_db.lock().unwrap().is_local_mailbox(self); 
+                let r = user_db.lock().unwrap().is_local_mailbox(self);
                 self.is_local_mailbox = Some(r);
                 r
             }

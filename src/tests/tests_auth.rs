@@ -121,7 +121,7 @@ mod tests_auth {
 
         (s, _) = s.handle(lf("EHLO test.org")).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
-        
+
         s.user_db().lock().unwrap().mock_user("spongebob", "pineapple!");
 
         (s, _) = s.handle(lf("AUTH PLAIN spongebob\0spongebob\0wrongpw")).await.unwrap();
@@ -143,7 +143,7 @@ mod tests_auth {
 
         (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"spongebob").as_ref())).await.unwrap();
         expect_msg!(s, "334 UGFzc3dvcmQA\r\n");
-        
+
         (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"pineapple!").as_ref())).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
     }

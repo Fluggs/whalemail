@@ -19,6 +19,10 @@ mod userdb {
     pub(crate) mod userdb;
 }
 
+mod queue {
+    pub(crate) mod  queue;
+}
+
 mod net;
 mod maildir;
 mod config;
@@ -43,6 +47,7 @@ use tokio_rustls::TlsAcceptor;
 use crate::userdb::userdb::UserDBMtx;
 use crate::config::Config;
 use crate::net::IO;
+use crate::queue::queue::{Queue, QueueMtx};
 use crate::userdb::drivers::postgres::Postgres;
 
 struct TlsListener {
@@ -65,6 +70,8 @@ async fn main() -> io::Result<()> {
         Ok(r) => r,
         Err(err) => panic!("Error building user db: {:?}", err)
     };
+    
+    let queue = Queue::new(config.clone());
 
     let listener = TcpListener::bind(config.bind_ip.clone()).await.or_else(|err| {
         println!("Binding to {} failed.", &config.bind_ip);
@@ -127,6 +134,7 @@ async fn main() -> io::Result<()> {
                         addr,
                         config.clone(),
                         user_db.clone(),
+                        queue.clone()
                     ).await,
                     Err(err) => eprintln!("Error processing plain socket: '{err}'")
                 }
@@ -142,6 +150,7 @@ async fn main() -> io::Result<()> {
                         addr,
                         config.clone(),
                         user_db.clone(),
+                        queue.clone(),
                     ).await,
                     Err(err) => eprintln!("Error accepting TLS stream: '{}'", err)
                 }
@@ -150,11 +159,14 @@ async fn main() -> io::Result<()> {
     }
 }
 
-async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx) {
+async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Config, user_db: UserDBMtx, queue: QueueMtx) {
     let handler = ConnectionHandler::new(stream, addr);
     debug!("Incoming client: {}:{}", handler.addr.ip(), handler.addr.port());
-    match handler.server_loop(config, user_db).await {
-        Ok(()) => (),
+    match handler.server_loop(config, user_db, queue.clone()).await {
+        Ok(()) => {
+            queue.lock().await.fire().await;
+            ()
+    },
         Err(err) => eprintln!("Socket came back with error: '{err}'")
     }
     println!("Closing connection from {}:{}", addr.ip(), addr.port());

@@ -41,7 +41,7 @@ mod tests_smtp {
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
-        
+
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -77,7 +77,7 @@ mod tests_smtp {
 
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
-        
+
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
@@ -111,7 +111,7 @@ mod tests_smtp {
         let mailct_2 = "more blob\r\n.\r\n".to_string();
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.net").unwrap());
-        
+
         expect_msg!(s, "220 hi\r\n");
 
         (s, _) = s.handle("HELO test.org\r\n".to_string()).await.unwrap();
@@ -232,7 +232,7 @@ mod tests_smtp {
         expect_msg!(s, ehlo_msg(&s));
 
         s.user_db().lock().unwrap().mock_user("sender", "pineapple!");
-        
+
         (s, _) = s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
@@ -273,7 +273,7 @@ mod tests_smtp {
         (s, _) = s.handle("MAIL From:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
     }
-    
+
     #[tokio::test]
     async fn test_mailfrom_not_authenticated() {
         let mut s: SmtpServer<TcpStream> = test_setup().await;
@@ -331,7 +331,7 @@ mod tests_smtp {
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.net").unwrap());
         (s, _) = s.handle("MAIL FROM:<sender@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "250 OK\r\n");
-        
+
         (s, _) = s.handle("RCPT TO:<mail@test.org>\r\n".to_string()).await.unwrap();
         expect_msg!(s, "530 5.7.0 Authentication required\r\n");
     }

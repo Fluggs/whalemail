@@ -58,6 +58,7 @@ pub mod test {
     use crate::net::IO;
     use crate::smtp::server::{ehlo_response, SmtpServer};
     use crate::maildir::Storage;
+    use crate::queue::queue::Queue;
     use crate::tests::test::{SmtpTest};
 
     pub(crate) fn ehlo_msg(s: &SmtpServer<TcpStream>) -> String {
@@ -78,7 +79,8 @@ pub mod test {
             },
             Config::mock(),
             MockDB::new(),
-            Storage::mock()
+            Storage::mock(),
+            Queue::new(Config::mock())
         ).await.unwrap()
     }
 

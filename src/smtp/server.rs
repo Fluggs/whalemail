@@ -10,9 +10,10 @@ use crate::auth::auth;
 use crate::userdb::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
-use crate::smtp::error::DeliveryError;
+use crate::smtp::error::MailboxDeliveryError;
 use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::maildir::Storage;
+use crate::queue::queue::QueueMtx;
 use crate::user::User;
 
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
@@ -594,6 +595,7 @@ impl DataState {
         mut self,
         writer: &mut ConnectionWriter<T>,
         storage: &mut Storage,
+        queue: QueueMtx,
         cmd: Command) 
     -> Result<SmtpState, io::Error> {
         debug!("Mail!: {}", cmd.message);
@@ -618,7 +620,7 @@ impl DataState {
         }
 
         let mail = Envelope::new(self.sender, self.recipients, self.mail_body);
-        match Self::deliver_mail(storage, self.user_db.clone(), &mail).await {
+        match Self::deliver_mail(storage, self.user_db.clone(), queue, &mail).await {
             Ok(()) => {
                 writer.send("250 OK\r\n".to_string()).await?;
                 Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
@@ -635,14 +637,19 @@ impl DataState {
     Attempts to deliver a mail to its recipients. Returns true only if the mail could be delivered
     to all recipients.
     */
-    async fn deliver_mail(storage: &Storage, user_db: UserDBMtx, envelope: &Envelope) -> Result<(), DeliveryError> {
+    async fn deliver_mail(
+        storage: &Storage,
+        user_db: UserDBMtx,
+        queue: QueueMtx,
+        envelope: &Envelope
+    ) -> Result<(), MailboxDeliveryError> {
         let mut mailboxes: Vec<(&MailAddress, String)> = Vec::new();
         for rcpt in &envelope.recipients {
             let mb = match user_db.lock().unwrap().get_mailboxhome(rcpt) {
                 Ok(mb) => mb,
                 Err(err) => {
                     debug!("Mail delivery error: {:?}", err);
-                    return Err(DeliveryError::NoSuchUser(rcpt.address.clone()))
+                    return Err(MailboxDeliveryError::NoSuchUser(rcpt.address.clone()))
                 }
             };
             mailboxes.push((rcpt, mb));
@@ -653,7 +660,7 @@ impl DataState {
                 Ok(()) => {},
                 Err(err) => {
                     debug!("Error storing mail for '{:?}': '{}'", mb, err);
-                    return Err(DeliveryError::MailboxIO(format!("{}", err)));
+                    return Err(MailboxDeliveryError::MailboxIO(format!("{}", err)));
                 }
             }
         }
@@ -773,6 +780,7 @@ pub(crate) struct SmtpServer<T: IO> {
     state_history: Vec<SmtpState>,
     user_db: UserDBMtx,
     storage: Storage,
+    queue: QueueMtx,
     authorized: Option<User>,
 }
 
@@ -781,7 +789,8 @@ impl<T: IO> SmtpServer<T> {
         mut cw: ConnectionWriter<T>,
         config: Config,
         user_db: UserDBMtx,
-        storage: Storage
+        storage: Storage,
+        queue: QueueMtx
     ) -> Result<Self, io::Error> {
         let state = InitState::greet(&mut cw, &config).await?;
 
@@ -792,6 +801,7 @@ impl<T: IO> SmtpServer<T> {
             state_history: vec![],
             user_db,
             storage,
+            queue,
             authorized: None,
         })
     }
@@ -800,14 +810,15 @@ impl<T: IO> SmtpServer<T> {
         connhandler: ConnectionHandler<T>,
         config: Config,
         user_db: UserDBMtx,
-        storage: Storage
+        storage: Storage,
+        queue: QueueMtx
     ) -> Result<Self, io::Error> {
         let cw = ConnectionWriter {
             conn: Some(connhandler),
             conn_testbed: None,
         };
         
-        Self::build(cw, config, user_db, storage).await
+        Self::build(cw, config, user_db, storage, queue).await
     }
 
     pub(crate) fn connhandler_mut(&mut self) -> &mut ConnectionHandler<T> {
@@ -890,7 +901,7 @@ impl<T: IO> SmtpServer<T> {
             },
             
             (SmtpState::DATA(state), _) => {
-                state.receive_data(&mut self.conn_writer, &mut self.storage, cmd).await?
+                state.receive_data(&mut self.conn_writer, &mut self.storage, self.queue.clone(), cmd).await?
             },
             
             (SmtpState::DATACOMPLETE(state), Some(CommandVerb::QUIT)) => {
@@ -943,14 +954,15 @@ impl<T: IO> SmtpServer<T> {
         testbed: SmtpTest,
         config: Config,
         user_db: UserDBMtx,
-        storage: Storage
+        storage: Storage,
+        queue: QueueMtx
     ) -> Result<Self, io::Error> {
         let cw = ConnectionWriter {
             conn: None,
             conn_testbed: Some(testbed),
         };
 
-        Self::build(cw, config, user_db, storage).await
+        Self::build(cw, config, user_db, storage, queue).await
     }
 
     #[cfg(test)]
