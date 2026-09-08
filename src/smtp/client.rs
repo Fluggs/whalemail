@@ -121,7 +121,7 @@ impl SmtpClient {
     /**
     Builds the connection via which an envelope can be delivered to `recipient`.
     This involves looking up the DNS MX record an probing for SMTP ports.
-    
+
     Returns the built connection and the initial SMTP client state in a `Result`.
     */
     pub(crate) async fn discover_connection(config: &Config, recipient: &MailAddress) -> Result<(Connection, RemoteGreeting), ClientError> {
@@ -254,7 +254,7 @@ impl SmtpClient {
             }
         }
     }
-    
+
     /**
     Attempts to connect to the regular SMTP port of a host and looks for an SMTP greeting there.
      */
@@ -279,9 +279,20 @@ impl SmtpClient {
             }
         }
     }
-    
+
     pub(crate) async fn run(mut self) -> Result<(), ClientError> {
-        todo!()
+        self.conn.send(format!("EHLO {}", self.config.hostname.as_str()).to_string()).await?;
+        self.conn.send(format!("MAIL FROM:<{}>", self.envelope.sender).to_string()).await?;
+
+        for rcpt in self.envelope.recipients {
+            self.conn.send(format!("RCPT TO:<{}>", rcpt).to_string()).await?;
+        }
+
+        self.conn.send("DATA".to_string()).await?;
+        self.conn.send(self.envelope.body).await?;
+        self.conn.send("QUIT".to_string()).await?;
+
+        Ok(())
     }
     
     pub(crate) async fn step(mut self, input: String) -> Result<(Self, StateKind), io::Error> {
