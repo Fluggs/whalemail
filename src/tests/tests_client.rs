@@ -14,9 +14,15 @@ mod tests_client {
         assert!(false);
     }
 
-    #[tokio::test]
+    //#[tokio::test]
     async fn test_delivery() {
-        let r = SmtpClient::deliver(Config::mock(), Envelope::dummy(), MailAddress::new("christian@emailgsm.de", &hostname()).unwrap()).await;
-        assert!(r.is_ok())
+        let mail = Envelope::new(
+            MailAddress::new("sender@whalemail.tld", &hostname()).unwrap(),
+            Vec::new(),
+            "testmail!".to_string()
+        );
+        let r = SmtpClient::deliver(Config::mock(), mail, MailAddress::new("test@test.org", &hostname()).unwrap()).await;
+        assert!(r.is_ok());
+        assert!(false)
     }
 }

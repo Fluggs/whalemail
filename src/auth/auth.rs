@@ -65,6 +65,7 @@ Represents an authenticated and authorized user/identity.
 #[derive(Debug)]
 pub struct Authorized {
     pub(crate) hostname: Hostname,
+    //todo identity should be a MailAddress
     pub(crate) identity: String,
     pub(crate) username: String,
 }

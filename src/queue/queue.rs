@@ -1,13 +1,14 @@
 use std::sync::Arc;
+use log::debug;
 use tokio::sync::Mutex;
 use crate::config::Config;
 use crate::smtp::client::SmtpClient;
 use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::smtp::error::RemoteDeliveryError;
 
-struct Entry {
-    envelope: Envelope,
-    recipient: MailAddress,
+pub(crate) struct Entry {
+    pub(crate) envelope: Envelope,
+    pub(crate) recipient: MailAddress,
 }
 
 pub(crate) type QueueMtx = Arc<Mutex<Queue>>;
@@ -26,6 +27,7 @@ impl Queue {
     }
     
     pub(crate) fn add(&mut self, envelope: &Envelope, recipient: MailAddress) {
+        debug!("Adding  mail for recipient '{}' to outgoing queue", recipient);
         let envelope = envelope.clone();
         self.entries.push(Entry {
             envelope,
@@ -45,5 +47,10 @@ impl Queue {
     
     async fn deliver(&self, entry: Entry) -> Result<(), RemoteDeliveryError> {
         Ok(SmtpClient::deliver(self.config.clone(), entry.envelope, entry.recipient).await?)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pop(&mut self) -> Option<Entry> {
+        self.entries.pop()
     }
 }

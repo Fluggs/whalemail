@@ -2,9 +2,9 @@
 mod tests_smtp {
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
-    use log::debug;
     use tokio::net::TcpStream;
-    use crate::config::{hostname, Hostname};
+    use crate::config::hostname;
+    use crate::maildir::Storage;
     use crate::smtp::server::{DataState, SmtpServer, StateKind};
     use crate::smtp::envelope::MailAddress;
     use crate::tests::test::expect_msg;
@@ -67,8 +67,14 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender.address, sender_addr.address);
-        assert_eq!(s.mail().recipients, Vec::from([rcpt]));
+        let mail = s.queue().lock().await.pop();
+        assert!(mail.is_none());
+        let (mail, recipient) = s.storage().stored_mail();
+        assert!(mail.is_some());
+        assert!(recipient.is_some());
+        let mail = mail.unwrap();
+        assert_eq!(mail.sender.address, sender_addr.address);
+        assert_eq!(mail.recipients, Vec::from([rcpt]));
     }
 
     #[tokio::test]
@@ -76,7 +82,6 @@ mod tests_smtp {
         let sender = "sender@test.org";
         let sender_addr = MailAddress::new(sender, &hostname()).unwrap();
         let rcpt = MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap();
-
         let mut s: SmtpServer<TcpStream> = test_setup().await;
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("rcv@whalemail.tld", &hostname()).unwrap());
 
@@ -103,8 +108,16 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // Verify mail
-        assert_eq!(s.mail().sender.address, sender_addr.address);
-        assert_eq!(s.mail().recipients, Vec::from([rcpt]));
+        let mail = s.queue().lock().await.pop();
+        assert!(mail.is_none());
+        let (mail, recipient) = s.storage().stored_mail();
+        assert!(mail.is_some());
+        assert!(recipient.is_some());
+        let mail = mail.unwrap();
+        let recipient = recipient.unwrap();
+        assert_eq!(recipient, rcpt);
+        assert_eq!(mail.sender.address, sender_addr.address);
+        assert_eq!(mail.recipients, Vec::from([rcpt]));
     }
 
     #[tokio::test]
@@ -140,7 +153,13 @@ mod tests_smtp {
         assert_eq!(r, StateKind::QUIT);
 
         // verify msg
-        assert_eq!(s.mail().body, mailct_1 + &mailct_2);
+        let mail = s.queue().lock().await.pop();
+        assert!(mail.is_none());
+        let (mail, recipient) = s.storage().stored_mail();
+        assert!(mail.is_some());
+        assert!(recipient.is_some());
+        let mail = mail.unwrap();
+        assert_eq!(mail.body, mailct_1 + &mailct_2);
     }
 
     #[tokio::test]
@@ -214,9 +233,9 @@ mod tests_smtp {
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.user_db().lock().unwrap().mock_user("sender", "pineapple!");
+        s.user_db().lock().unwrap().mock_user("sender@whalemail.tld", "pineapple!");
 
-        (s, _) = s.handle("AUTH PLAIN sender\0sender\0pineapple!\r\n".to_string()).await.unwrap();
+        (s, _) = s.handle("AUTH PLAIN sender@whalemail.tld\0sender@whalemail.tld\0pineapple!\r\n".to_string()).await.unwrap();
         expect_msg!(s, "235 2.7.0 Authentication successful\r\n");
 
         s.user_db().lock().unwrap().mock_mailbox(MailAddress::new("sender@whalemail.tld", &hostname()).unwrap());
@@ -233,14 +252,14 @@ mod tests_smtp {
         (s, _) = s.handle("EHLO test.org\r\n".to_string()).await.unwrap();
         expect_msg!(s, ehlo_msg(&s));
 
-        s.user_db().lock().unwrap().mock_user("sender", "pineapple!");
+        s.user_db().lock().unwrap().mock_user("sender@whalemail.tld", "pineapple!");
 
         (s, _) = s.handle(lf("AUTH LOGIN")).await.unwrap();
         expect_msg!(s, "334 VXNlciBOYW1lAA==\r\n");
 
-        s.user_db().lock().unwrap().mock_user("sender", "pineapple!");
+        s.user_db().lock().unwrap().mock_user("sender@whalemail.tld", "pineapple!");
 
-        (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"sender").as_ref())).await.unwrap();
+        (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"sender@whalemail.tld").as_ref())).await.unwrap();
         expect_msg!(s, "334 UGFzc3dvcmQA\r\n");
 
         (s, _) = s.handle(lf(BASE64_STANDARD.encode(b"pineapple!").as_ref())).await.unwrap();

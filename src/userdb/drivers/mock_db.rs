@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use log::debug;
 use crate::auth::auth::Authorized;
+use crate::config::hostname;
 use crate::smtp::envelope::MailAddress;
 use crate::userdb::userdb::{Error, UserDB, UserDBMtx};
 
@@ -24,8 +25,11 @@ impl MockDB {
 
 impl UserDB for MockDB {
     fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error> {
-        Ok(authorized.identity.eq(&self.username.clone())
-            && password.eq(&self.password.clone()))
+        debug!("Mock auth: '{}' wants auth for '{}'", authorized.identity, self.username);
+        Ok(
+            (authorized.identity.eq(&self.username) && password.eq(&self.password))
+            || (self.username.eq(&(authorized.identity.clone() + "@" + hostname().as_str())) && password.eq(&self.password))
+        )
     }
 
     fn get_mailboxhome(&self, rcpt: &MailAddress) -> Result<String, Error> {

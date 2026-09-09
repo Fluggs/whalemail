@@ -16,8 +16,6 @@ use crate::maildir::Storage;
 use crate::queue::queue::QueueMtx;
 use crate::user::User;
 
-#[cfg(test)] use crate::config::hostname;
-
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";
 static MSG_INVALID_HOST: &str = "450 Invalid host\r\n";
 static MSG_MAILBOX_UNAVAILABLE: &str = "450 Requested mail action not taken: mailbox unavailable\r\n";
@@ -416,7 +414,7 @@ impl MailFromState {
                 None => false,
                 Some(user) => {
                     debug!("user: '{}' @ '{}', sender: '{}' @ '{}'", user.identity, user.hostname.as_str(), sender.local_part, sender.domain);
-                    user.identity.eq(&sender.local_part) && user.hostname.eq(&sender.domain)
+                    user.identity.eq(&sender.address)
                 }
             },
             false => true
@@ -646,7 +644,7 @@ impl DataState {
     to all recipients.
     */
     async fn deliver_local_mail(
-        storage: &Storage,
+        storage: &mut Storage,
         user_db: UserDBMtx,
         envelope: &Envelope,
         recipients: Vec<&MailAddress>
@@ -681,7 +679,7 @@ impl DataState {
     to all (local) recipients.
     */
     async fn deliver_mail(
-        storage: &Storage,
+        storage: &mut Storage,
         user_db: UserDBMtx,
         queue: QueueMtx,
         envelope: &Envelope
@@ -689,7 +687,10 @@ impl DataState {
         let mut local_mailboxes: Vec<&MailAddress> = Vec::new();
         for rcpt in &envelope.recipients {
             match rcpt.is_local_responsibility() {
-                true => local_mailboxes.push(rcpt),
+                true => {
+                    debug!("Adding  mail for recipient '{}' to local mailbox queue", rcpt);
+                    local_mailboxes.push(rcpt)
+                },
                 false => queue.lock().await.add(envelope, rcpt.clone())
             }
         }
@@ -795,7 +796,7 @@ enum SmtpState {
     RCPT(RcptState),
     DATA(DataState),
     DATACOMPLETE(CompleteState),
-    QUIT(CompleteState),
+    QUIT,
     CANCELLED,
 }
 
@@ -814,7 +815,6 @@ pub(crate) struct SmtpServer<T: IO> {
     user_db: UserDBMtx,
     storage: Storage,
     queue: QueueMtx,
-    authorized: Option<User>,
 }
 
 impl<T: IO> SmtpServer<T> {
@@ -835,7 +835,6 @@ impl<T: IO> SmtpServer<T> {
             user_db,
             storage,
             queue,
-            authorized: None,
         })
     }
     
@@ -939,7 +938,7 @@ impl<T: IO> SmtpServer<T> {
             
             (SmtpState::DATACOMPLETE(state), Some(CommandVerb::QUIT)) => {
                 state.quit(&mut self.conn_writer).await;
-                SmtpState::QUIT(state)
+                SmtpState::QUIT
             },
             
             (_state, Some(_verb)) => {
@@ -958,7 +957,7 @@ impl<T: IO> SmtpServer<T> {
         };
         
         match self.state {
-            SmtpState::QUIT(_) | SmtpState::CANCELLED => Ok((self, StateKind::QUIT)),
+            SmtpState::QUIT | SmtpState::CANCELLED => Ok((self, StateKind::QUIT)),
             _ => Ok((self, StateKind::CONTINUE))
         }
     }
@@ -1014,17 +1013,6 @@ impl<T: IO> SmtpServer<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn mail(&self) -> &Envelope {
-        match &self.state {
-            SmtpState::DATACOMPLETE(complete)
-            | SmtpState::QUIT(complete) => {
-                complete.mail()
-            },
-            _ => panic!("Incorrect smtp state: {:?}", self.state)
-        }
-    }
-
-    #[cfg(test)]
         pub(crate) fn is_local_sender(&self) -> bool {
         match &self.state {
             SmtpState::RCPT(rcpt) => rcpt.is_local_sender,
@@ -1038,10 +1026,7 @@ impl<T: IO> SmtpServer<T> {
         match &self.state {
             SmtpState::RCPT(rcptstate) => &rcptstate.recipients,
             SmtpState::DATA(datastate) => &datastate.recipients,
-            SmtpState::DATACOMPLETE(complete)
-            | SmtpState::QUIT(complete) => {
-                &complete.mail().recipients
-            },
+            SmtpState::DATACOMPLETE(complete) => &complete.mail().recipients,
             _ => panic!("Incorrect smtp state: {:?}", self.state)
         }
     }
@@ -1049,5 +1034,15 @@ impl<T: IO> SmtpServer<T> {
     #[cfg(test)]
     pub(crate) fn config(&self) -> &Config {
         &self.config
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queue(&self) -> QueueMtx {
+        self.queue.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn storage(&mut self) -> &mut Storage {
+        &mut self.storage
     }
 }

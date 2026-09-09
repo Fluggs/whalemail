@@ -12,6 +12,9 @@ pub(crate) struct Storage {
     hostname: Hostname,
     config: MaildirConfig,
     base_instant: Instant,
+    #[cfg(test)] mock: bool,
+    #[cfg(test)] stored_envelope: Option<Envelope>,
+    #[cfg(test)] stored_recipient: Option<MailAddress>,
 }
 
 impl Storage {
@@ -20,6 +23,9 @@ impl Storage {
             hostname,
             config: maildir_config,
             base_instant: Instant::now(),
+            #[cfg(test)] mock: false,
+            #[cfg(test)] stored_envelope: None,
+            #[cfg(test)] stored_recipient: None,
         }
     }
     
@@ -29,6 +35,9 @@ impl Storage {
             hostname: hostname(),
             config: MaildirConfig { user_maildir_path: String::new() },
             base_instant: Instant::now(),
+            #[cfg(test)] mock: true,
+            #[cfg(test)] stored_envelope: None,
+            #[cfg(test)] stored_recipient: None,
         }
     }
 
@@ -60,9 +69,16 @@ impl Storage {
     /**
     Stores a mail in a mailbox identified by its name. Actual mailbox path is determined by config.
     */
-    pub(crate) async fn store(&self, mail: &Envelope, rcpt: &MailAddress, mailbox_home: String) -> Result<(), io::Error> {
+    pub(crate) async fn store(&mut self, mail: &Envelope, rcpt: &MailAddress, mailbox_home: String) -> Result<(), io::Error> {
         let mut mailpath = self.build_new_dir(mailbox_home, rcpt);
         debug!("Writing mail '{}' to '{}'", mail.uuid, mailpath);
+        
+        #[cfg(test)]
+        if self.mock {
+            self.stored_envelope = Some(mail.clone());
+            self.stored_recipient = Some(rcpt.clone());
+            return Ok(());
+        }
 
         fs::create_dir_all(&mailpath).await?;
         mailpath.push(self.maildir_file_name());
@@ -81,5 +97,10 @@ impl Storage {
             .as_secs();
         let millis = Instant::now().duration_since(self.base_instant).as_millis();
         format!("{}.{}.M{}", unixtime, self.hostname.as_str(), millis).to_string()
+    }
+    
+    #[cfg(test)]
+    pub(crate) fn stored_mail(&mut self) -> (Option<Envelope>, Option<MailAddress>) {
+        (self.stored_envelope.take(), self.stored_recipient.take())
     }
 }
