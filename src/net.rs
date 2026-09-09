@@ -20,7 +20,7 @@ pub struct ConnectionHandler<T: IO> {
 }
 
 impl<T: IO> ConnectionHandler<T> {
-    pub(crate) fn new<'a> (socket: T, addr: SocketAddr) -> ConnectionHandler<T> {
+    pub(crate) fn new (socket: T, addr: SocketAddr) -> ConnectionHandler<T> {
         ConnectionHandler {
             socket,
             addr,
@@ -46,7 +46,7 @@ impl<T: IO> ConnectionHandler<T> {
     }
     
     pub(crate) async fn server_loop(self, config: Config, user_db: UserDBMtx, queue: QueueMtx) -> io::Result<()> {
-        let maildir_config = (&config.maildir_config).clone();
+        let maildir_config = config.maildir_config.clone();
         let hostname = config.hostname.clone();
         let smtp = SmtpServer::new(self, config, user_db, Storage::new(hostname, maildir_config), queue)
             .await?;
@@ -75,10 +75,9 @@ impl<T: IO> ConnectionHandler<T> {
                         }
                     };
 
-                    smtp = match smtp.handle(v).await {
-                        Ok((_, StateKind::QUIT)) => break,
-                        Ok((smtp, StateKind::CONTINUE)) => smtp,
-                        Err(e) => return Err(e.into())
+                    smtp = match smtp.handle(v).await? {
+                        (_, StateKind::QUIT) => break,
+                        (smtp, StateKind::CONTINUE) => smtp
                     };
                 },
             }
@@ -93,7 +92,7 @@ impl<T: IO> ConnectionHandler<T> {
             n if n < msg.len() => {
                 let err = format!("Tried to write {} bytes but only {} were written.", msg.len(), n);
                 debug!("{err}");
-                Err(Error::new(ErrorKind::Other, err))
+                Err(Error::other(err))
             },
             _ => Ok(())
         }

@@ -108,16 +108,12 @@ impl Command {
 
 // Regex Patterns
 struct Patterns {
-    mail_end: Regex,
-    period_linestart: Regex,
     auth_cmd: Regex,
     mail_cmd: Regex,
     rcpt_cmd: Regex,
 }
 
 static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
-    mail_end: Regex::new(r"\r\n\.\r\n").unwrap(),
-    period_linestart: Regex::new(r"\r\n\.").unwrap(),
     auth_cmd: Regex::new(r"AUTH ([0-9A-Za-z_-]*)\s*([^$]+?)?\s*$").unwrap(),
     mail_cmd: Regex::new(r"^(?i)MAIL FROM:<([^>]+)>\r\n$").unwrap(),
     rcpt_cmd: Regex::new(r"^(?i)RCPT TO:<([^>]+)>\r\n$").unwrap(),
@@ -338,10 +334,7 @@ Returns the contained address or `BadCommandError` on error.
 */
 fn parse_address_message_by_re(re: &Regex, cmd: &Command) -> Result<String, BadCommandError> {
     let parse = match re.captures(&cmd.message) {
-        Some(capture) => match capture.get(1) {
-            Some(rcpt) => Some(rcpt.as_str().to_string()),
-            None => None
-        },
+        Some(capture) => capture.get(1).map(|rcpt| rcpt.as_str().to_string()),
         None => None
     };
 
@@ -510,10 +503,10 @@ impl RcptState {
         let recipient = parse_address_message_by_re(
             &RE.rcpt_cmd, &cmd
         )
-            .or_else(|_| Err(Ok(RcptError::BadCommand)))?;
+            .map_err(|_| Ok(RcptError::BadCommand))?;
         let mut recipient = MailAddress::new(recipient.as_str(), &self.hostname)
             .map_err(|_| RcptError::InvalidMailbox)
-            .or_else(|smtp_err| Err(Ok(smtp_err)))?;
+            .map_err(|smtp_err| Ok(smtp_err))?;
         
         if !Self::has_permission(hostname, &self.authorized, &mut recipient) {
             return Err(Ok(RcptError::Unauthorized));
@@ -628,7 +621,7 @@ impl DataState {
         match Self::deliver_mail(storage, self.user_db.clone(), queue, &mail).await {
             Ok(()) => {
                 writer.send("250 OK\r\n".to_string()).await?;
-                Ok(SmtpState::DATACOMPLETE(CompleteState::new(mail)))
+                Ok(SmtpState::DATACOMPLETE(CompleteState::new()))
             },
             Err(err) => {
                 debug!("Mail delivery error: {:?}", err);
@@ -650,7 +643,7 @@ impl DataState {
         recipients: Vec<&MailAddress>
     ) -> Result<(), MailboxDeliveryError> {
         let mut mailboxes: Vec<(&MailAddress, String)> = Vec::new();
-        for rcpt in &envelope.recipients {
+        for rcpt in recipients {
             let mb = match user_db.lock().unwrap().get_mailboxhome(rcpt) {
                 Ok(mb) => mb,
                 Err(err) => {
@@ -758,31 +751,22 @@ impl DataState {
         }
 
         if has_rnp_end {
-            r.push_str(".");
+            r.push('.');
         }
 
         Ok(r)
     }
 }
 
-struct CompleteState {
-    mail: Envelope
-}
+struct CompleteState {}
 
 impl CompleteState {
-    fn new(mail: Envelope) -> Self {
-        Self {
-            mail,
-        }
+    fn new() -> Self {
+        Self {}
     }
     
     async fn quit<T: IO>(&self, writer: &mut ConnectionWriter<T>) {
         let _ = writer.send("221 closing channel\r\n".to_string()).await;
-    }
-    
-    #[cfg(test)]
-    fn mail(&self) -> &Envelope {
-        &self.mail
     }
 }
 
@@ -871,13 +855,13 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::INIT(old_state), Some(CommandVerb::HELO)) => {
                 HeloState::respond(&mut self.conn_writer, old_state)
                     .await
-                    .and_then(|helo| Ok(SmtpState::HELO(helo)))?
+                    .map(|helo| SmtpState::HELO(helo))?
             },
             
             (SmtpState::INIT(old_state), Some(CommandVerb::EHLO)) => {
                 EhloState::respond(&mut self.conn_writer, &self.config, old_state)
                     .await
-                    .and_then(|ehlo| Ok(SmtpState::EHLO(ehlo)))?
+                    .map(|ehlo| SmtpState::EHLO(ehlo))?
             },
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::AUTH)) => {
@@ -911,7 +895,7 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {
                 RcptState::new(&mut self.conn_writer, &self.config.hostname, cmd, mail)
                     .await
-                    .and_then(|rcpt| Ok(SmtpState::RCPT(rcpt)))
+                    .map(|rcpt| SmtpState::RCPT(rcpt))
                     .or_else(|res_mailfrom| Ok::<SmtpState, io::Error>(SmtpState::MAIL(res_mailfrom?)))?
             },
             
@@ -929,7 +913,7 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::RCPT(rcpt), Some(CommandVerb::DATA)) => {
                 DataState::new(&mut self.conn_writer, self.user_db.clone(), rcpt)
                     .await
-                    .and_then(|state| Ok(SmtpState::DATA(state)))?
+                    .map(|state| SmtpState::DATA(state))?
             },
             
             (SmtpState::DATA(state), _) => {
@@ -944,15 +928,13 @@ impl<T: IO> SmtpServer<T> {
             (_state, Some(_verb)) => {
                 debug!("Bad sequence: {:?}", self.state_history);
                 self.conn_writer.send("503 Bad sequence\r\n".to_string()).await
-                    .and(Ok(SmtpState::CANCELLED))
-                    .or_else(|io_err| Err(io_err))?
+                    .and(Ok(SmtpState::CANCELLED))?
             },
 
             (_state, None) => {
                 debug!("Unrecognized command");
                 self.conn_writer.send(MSG_BAD_COMMAND.to_string()).await
-                    .and(Ok(SmtpState::CANCELLED))
-                    .or_else(|io_err| Err(io_err))?
+                    .and(Ok(SmtpState::CANCELLED))?
             }
         };
         
@@ -1026,7 +1008,6 @@ impl<T: IO> SmtpServer<T> {
         match &self.state {
             SmtpState::RCPT(rcptstate) => &rcptstate.recipients,
             SmtpState::DATA(datastate) => &datastate.recipients,
-            SmtpState::DATACOMPLETE(complete) => &complete.mail().recipients,
             _ => panic!("Incorrect smtp state: {:?}", self.state)
         }
     }

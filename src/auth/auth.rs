@@ -220,12 +220,9 @@ impl Auth {
         
         match &r.mechname {
             AuthMech::PLAIN => {
-                match initial_step {
-                    Some(arg) => {
-                        let credentials = Self::try_base64_plain_credentials(arg);
-                        r.step(Some(credentials.as_ref()))?;
-                    },
-                    None => {}
+                if let Some(arg) = initial_step {
+                    let credentials = Self::try_base64_plain_credentials(arg);
+                    r.step(Some(credentials.as_ref()))?;
                 }
             }
             AuthMech::LOGIN => {
@@ -348,7 +345,7 @@ impl SessionCallback for Callback {
         };
         debug!("Validation for user {} for identity {} with pw {}", user.username, user.identity, password);
         if self.user_db.lock().unwrap().authenticate(&user, password)
-            .or_else(|dberr| Err(ValidationError::Boxed(Box::new(dberr))))? {
+            .map_err(|dberr| ValidationError::Boxed(Box::new(dberr)))? {
             debug!("Authorizing user {} for identity {}", user.username, user.identity);
             validate.finalize::<AuthValidation>(Ok(user))
         }

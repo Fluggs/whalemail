@@ -46,7 +46,7 @@ impl CertErr {
     }
 }
 
-fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertErr> {
+fn read_ca_certs(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertErr> {
     let mut ca_certs: Vec<CertificateDer> = Vec::new();
     for el in fs::read_dir(&trusted_ca_cert_dir)? {
         let dir_entry = &el?;
@@ -55,15 +55,12 @@ fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertE
             .ok_or(CertErr::new(format!("Unable to read file name from '{}'", trusted_ca_cert_dir)))?
             .to_string();
 
-        match file_name.ends_with(".pem") {
-            true => {
-                CertificateDer::pem_file_iter(dir_entry.path())?
-                    .try_for_each(|el| {
-                        ca_certs.push(el?);
-                        Ok::<(), pem::Error>(())
-                    })?;
-            },
-            false => {}
+        if file_name.ends_with(".pem") {
+            CertificateDer::pem_file_iter(dir_entry.path())?
+                .try_for_each(|el| {
+                    ca_certs.push(el?);
+                    Ok::<(), pem::Error>(())
+                })?;
         }
     }
     
@@ -79,14 +76,14 @@ fn read_ca_certs<'a>(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertE
 fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
     let file = file.into();
     let certs: Vec<CertificateDer> = CertificateDer::pem_file_iter(file.clone())
-        .expect(format!("Unable to read TLS certificate from {:?}", &file).as_str())
-        .map(|res| res.expect(
-            format!("Error reading certificate chain from file {:?}", file.as_os_str()).as_str()
+        .unwrap_or_else(|_| panic!("Unable to read TLS certificate from {:?}", &file))
+        .map(|res| res.unwrap_or_else(
+            |_| panic!("Error reading certificate chain from file {:?}", file.as_os_str())
         ))
         .collect();
     
     debug!("Read TLS certificate chain from file '{}': {} certs in chain",
-        &file.to_str().expect(format!("Unable to parse file name {:?}", file.clone()).as_str()),
+        &file.to_str().unwrap_or_else(|| panic!("Unable to parse file name {:?}", file.clone())),
         certs.len()
     );
     
@@ -95,7 +92,7 @@ fn read_certs(file: impl Into<PathBuf>) -> Vec<CertificateDer<'static>> {
 
 pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) -> TlsAcceptor {
     let root_cert_store = read_ca_certs(trusted_ca_cert_dir.clone())
-        .expect(format!("Error reading ca cert dir '{}'", trusted_ca_cert_dir).as_str());
+        .unwrap_or_else(|_| panic!("Error reading ca cert dir '{}'", trusted_ca_cert_dir));
 
     debug!("Root cert store: {:?}", root_cert_store);
 
@@ -109,7 +106,7 @@ pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) 
     privkey_path.push("privkey.pem");
     println!("Trying to read privkey from {:?}", privkey_path);
     let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path.clone())
-        .expect(format!("Error reading TLS private key from file '{:?}'", privkey_path).as_str());
+        .unwrap_or_else(|_| panic!("Error reading TLS private key from file '{:?}'", privkey_path));
     println!("privkey read: {:?}", privkey);
 
     let server_config = ServerConfig::builder()
@@ -132,7 +129,7 @@ pub(crate) fn build_tls_connector(config: &Config) -> TlsConnector {
     privkey_path.push("privkey.pem");
     println!("Trying to read privkey from {:?}", privkey_path);
     let privkey = <PrivateKeyDer as PemObject>::from_pem_file(privkey_path.clone())
-        .expect(format!("Error reading TLS private key from file '{:?}'", privkey_path).as_str());
+        .unwrap_or_else(|_| panic!("Error reading TLS private key from file '{:?}'", privkey_path));
     println!("privkey read: {:?}", privkey);
 
     let client_config = rustls::ClientConfig::builder()

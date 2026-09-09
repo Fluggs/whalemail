@@ -52,13 +52,13 @@ impl UserDB for Postgres {
                 .query("SELECT username, domain FROM users WHERE username = $1::TEXT AND domain = $2::TEXT AND password = $3::TEXT;",
                        &[&user_addr.local_part, &user_addr.domain, &password])
             ))
-            .or_else(|err| {
+            .map_err(|err| {
                 debug!("DB error: '{:?}', '{:?}', '{:?}'", err, err.code(), err.as_db_error());
-                Err(Error::DBError)
+                Error::DBError
             })?;
 
         debug!("{} authenticated", authorized.username);
-        Ok(rows.len() > 0)
+        Ok(!rows.is_empty())
     }
 
     /**
@@ -79,7 +79,7 @@ impl UserDB for Postgres {
                 return Err(Error::DBError);
             },
             1 => {
-                rows.get(0).unwrap()
+                rows.first().unwrap()
             },
             p => {
                 error!("Expected at most one mailbox, retrieved {} from DB for address '{}'", p, rcpt.address);

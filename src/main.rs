@@ -40,8 +40,6 @@ use tokio::net::{TcpListener, TcpStream};
 use std::io;
 use std::net::SocketAddr;
 use net::ConnectionHandler;
-use env_logger;
-use log;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
 use crate::userdb::userdb::UserDBMtx;
@@ -73,9 +71,8 @@ async fn main() -> io::Result<()> {
     
     let queue = Queue::new(config.clone());
 
-    let listener = TcpListener::bind(config.bind_ip.clone()).await.or_else(|err| {
+    let listener = TcpListener::bind(config.bind_ip.clone()).await.inspect_err(|err| {
         println!("Binding to {} failed.", &config.bind_ip);
-        Err(err)
     })?;
 
     // Build TlsListener if config values for certs are provided
@@ -88,9 +85,8 @@ async fn main() -> io::Result<()> {
             
             let listener = TcpListener::bind(config.bind_ip_tls.clone())
                 .await
-                .or_else(|err| {
+                .inspect_err(|err| {
                     println!("Binding to {} failed.", &config.bind_ip_tls);
-                    Err(err)
                 })?;
             
             Some(TlsListener {
@@ -165,7 +161,6 @@ async fn process_socket_silent<T: IO>(stream: T, addr: SocketAddr, config: Confi
     match handler.server_loop(config, user_db, queue.clone()).await {
         Ok(()) => {
             queue.lock().await.fire().await;
-            ()
     },
         Err(err) => eprintln!("Socket came back with error: '{err}'")
     }
