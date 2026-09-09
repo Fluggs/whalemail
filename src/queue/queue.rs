@@ -41,8 +41,12 @@ impl Queue {
             None => return
         };
 
-        // todo bounce report
-        let _ = self.deliver(entry);
+        // todo bounce report into mailbox
+        let res = self.deliver(entry).await;
+        match res {
+            Ok(()) => {},
+            Err(err) => debug!("Delivery error: {:?}", err)
+        };
     }
     
     async fn deliver(&self, entry: Entry) -> Result<(), RemoteDeliveryError> {

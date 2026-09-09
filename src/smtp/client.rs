@@ -9,6 +9,7 @@ use regex::Regex;
 use rustls_pki_types::ServerName;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use tokio_postgres::Client;
 use tokio_rustls::client::TlsStream;
 use crate::config::Config;
 use crate::net::{ConnectionHandler, IO};
@@ -280,22 +281,37 @@ impl SmtpClient {
         }
     }
 
-    pub(crate) async fn run(mut self) -> Result<(), ClientError> {
-        self.conn.send(format!("EHLO {}", self.config.hostname.as_str()).to_string()).await?;
-        self.conn.send(format!("MAIL FROM:<{}>", self.envelope.sender).to_string()).await?;
+    async fn expect(conn: &mut Connection, expected_prefix: &str) -> Result<(), ClientError> {
+        let r = match timeout(Duration::from_millis(30_000), conn.read()).await {
+            Ok(res) => res?,
+            Err(_) => return Err(ClientError::Timeout),
+        };
 
-        for rcpt in self.envelope.recipients {
-            self.conn.send(format!("RCPT TO:<{}>", rcpt).to_string()).await?;
+        match r.starts_with(expected_prefix) {
+            true => Ok(()),
+            false => Err(ClientError::SmtpError(r))
+        }
+    }
+
+    pub(crate) async fn run(mut self) -> Result<(), ClientError> {
+        self.conn.send(format!("EHLO {}\r\n", self.config.hostname.as_str()).to_string()).await?;
+        Self::expect(&mut self.conn, "250").await?;
+        self.conn.send(format!("MAIL FROM:<{}>\r\n", self.envelope.sender).to_string()).await?;
+        Self::expect(&mut self.conn, "250").await?;
+
+        for rcpt in &mut self.envelope.recipients {
+            self.conn.send(format!("RCPT TO:<{}>\r\n", rcpt).to_string()).await?;
+            Self::expect(&mut self.conn, "250").await?;
         }
 
-        self.conn.send("DATA".to_string()).await?;
+        self.conn.send("DATA\r\n".to_string()).await?;
+        Self::expect(&mut self.conn, "354").await?;
         self.conn.send(self.envelope.body).await?;
-        self.conn.send("QUIT".to_string()).await?;
+        Self::expect(&mut self.conn, "250").await?;
+
+        // previous 250 acknowledged successful mail delivery, so here we ignore the result
+        let _ = self.conn.send("QUIT\r\n".to_string()).await;
 
         Ok(())
-    }
-    
-    pub(crate) async fn step(mut self, input: String) -> Result<(Self, StateKind), io::Error> {
-        todo!()
     }
 }

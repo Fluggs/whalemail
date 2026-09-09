@@ -11,7 +11,9 @@ pub(crate) enum MailboxDeliveryError {
 pub(crate) enum ClientError {
     DnsLookupError(ResolveError),
     IoError(io::Error),
-    NoSmtpHostError
+    NoSmtpHostError,
+    SmtpError(String),
+    Timeout,
 }
 
 impl From<ResolveError> for ClientError {
@@ -20,9 +22,12 @@ impl From<ResolveError> for ClientError {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum RemoteDeliveryError {
     NoSmtpHostFound(ClientError),
-    IoError(io::Error)
+    IoError(io::Error),
+    SmtpError(String),
+    Timeout,
 }
 
 impl From<ClientError> for RemoteDeliveryError {
@@ -31,6 +36,8 @@ impl From<ClientError> for RemoteDeliveryError {
             ClientError::NoSmtpHostError => RemoteDeliveryError::NoSmtpHostFound(ClientError::NoSmtpHostError),
             ClientError::DnsLookupError(err) => RemoteDeliveryError::NoSmtpHostFound(ClientError::DnsLookupError(err)),
             ClientError::IoError(err) => RemoteDeliveryError::IoError(err),
+            ClientError::SmtpError(msg) => RemoteDeliveryError::SmtpError(msg),
+            ClientError::Timeout => RemoteDeliveryError::Timeout,
         }
     }
 }
