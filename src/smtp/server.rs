@@ -25,6 +25,7 @@ static TRANSPARENCY_ERROR_NO_NL_END: &str = "500 Syntax error: Invalid mail body
 static TRANSPARENCY_UNEXPECTED_END: &str = "500 Syntax error: <CR><LF>.<CR><LF> at unexpected position\r\n";
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString, IntoStaticStr)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) enum CommandVerb {
     INIT,
     HELO,
@@ -40,8 +41,8 @@ pub(crate) enum CommandVerb {
 #[derive(Clone, Debug)]
 #[derive(PartialEq)]
 pub enum StateKind {
-    CONTINUE,
-    QUIT
+    Continue,
+    Quit
 }
 
 #[derive(Clone)]
@@ -205,6 +206,7 @@ pub(crate) fn ehlo_response(config: &Config) -> String {
     EhloState::build_ehlo_response(config)
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AuthResult {
     Unfinished(AuthState),
     Authorized((EhloState, User)),
@@ -259,7 +261,7 @@ impl AuthState {
         };
 
         let mech_arg = mech_arg
-            .and_then(|re_match| Some(String::from(re_match.as_str())));
+            .map(|re_match| String::from(re_match.as_str()));
 
         let auth = match auth::Auth::new(user_db.clone(), hostname, mech, mech_arg) {
             Ok(auth) => auth,
@@ -506,7 +508,7 @@ impl RcptState {
             .map_err(|_| Ok(RcptError::BadCommand))?;
         let mut recipient = MailAddress::new(recipient.as_str(), &self.hostname)
             .map_err(|_| RcptError::InvalidMailbox)
-            .map_err(|smtp_err| Ok(smtp_err))?;
+            .map_err(Ok)?;
         
         if !Self::has_permission(hostname, &self.authorized, &mut recipient) {
             return Err(Ok(RcptError::Unauthorized));
@@ -514,7 +516,7 @@ impl RcptState {
         
         self.recipients.push(recipient);
         writer.send("250 OK\r\n".to_string()).await
-            .or_else(|ioerr| Err(Err(ioerr)))?;
+            .map_err(Err)?;
         Ok(())
         
     }
@@ -566,7 +568,7 @@ impl DataState {
     fn mock(user_db: UserDBMtx) -> Self {
         Self {
             user_db,
-            sender: MailAddress::mock(false),
+            sender: MailAddress::mock(),
             is_local_sender: false,
             recipients: Vec::new(),
             authorized: None,
@@ -579,7 +581,7 @@ impl DataState {
         writer.send(MSG_MAILBOX_UNAVAILABLE.to_string()).await
     }
 
-    fn contains_mail_end(s: &String) -> bool {
+    fn contains_mail_end(s: &str) -> bool {
         s.starts_with(".\r\n")
         || s.contains("\r\n.\r\n")
         || s.ends_with("\r\n.")
@@ -598,7 +600,7 @@ impl DataState {
     -> Result<SmtpState, io::Error> {
         debug!("Mail!: {}", cmd.message);
 
-        match Self::contains_mail_end(&cmd.message) {
+        match Self::contains_mail_end(cmd.message.as_str()) {
             false => {
                 self.mail_body.push_str(cmd.message.as_str());
                 return Ok(SmtpState::DATA(self));
@@ -688,7 +690,7 @@ impl DataState {
             }
         }
 
-        if local_mailboxes.len() > 0 {
+        if !local_mailboxes.is_empty() {
             Self::deliver_local_mail(storage, user_db, envelope, local_mailboxes).await?;
         }
 
@@ -699,14 +701,14 @@ impl DataState {
     Decodes mail body `s` as per transparency procedure in RFC5321#4.5.2.
     */
     pub(crate) fn decode_transparency(s: &str) -> Result<String, TransparencySyntaxError> {
-        if s.len() == 0 {
+        if s.is_empty() {
             return Ok(String::new());
         }
 
         let policy_allow_rnp_end = true;
         let mut has_rnp_end = false;
 
-        let mut chunks: Vec<&str> = s.split("\r\n.").into_iter().collect();
+        let mut chunks: Vec<&str> = s.split("\r\n.").collect();
         debug!("Chunks: '{:?}'", chunks);
         let last = chunks.len() - 1;
         if chunks[last].eq("\r\n") {
@@ -771,6 +773,7 @@ impl CompleteState {
 }
 
 #[derive(IntoStaticStr)]
+#[allow(clippy::upper_case_acronyms)]
 enum SmtpState {
     INIT(InitState),
     HELO(HeloState),
@@ -855,13 +858,13 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::INIT(old_state), Some(CommandVerb::HELO)) => {
                 HeloState::respond(&mut self.conn_writer, old_state)
                     .await
-                    .map(|helo| SmtpState::HELO(helo))?
+                    .map(SmtpState::HELO)?
             },
             
             (SmtpState::INIT(old_state), Some(CommandVerb::EHLO)) => {
                 EhloState::respond(&mut self.conn_writer, &self.config, old_state)
                     .await
-                    .map(|ehlo| SmtpState::EHLO(ehlo))?
+                    .map(SmtpState::EHLO)?
             },
             
             (SmtpState::EHLO(ehlo), Some(CommandVerb::AUTH)) => {
@@ -895,7 +898,7 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::MAIL(mail), Some(CommandVerb::RCPT)) => {
                 RcptState::new(&mut self.conn_writer, &self.config.hostname, cmd, mail)
                     .await
-                    .map(|rcpt| SmtpState::RCPT(rcpt))
+                    .map(SmtpState::RCPT)
                     .or_else(|res_mailfrom| Ok::<SmtpState, io::Error>(SmtpState::MAIL(res_mailfrom?)))?
             },
             
@@ -913,7 +916,7 @@ impl<T: IO> SmtpServer<T> {
             (SmtpState::RCPT(rcpt), Some(CommandVerb::DATA)) => {
                 DataState::new(&mut self.conn_writer, self.user_db.clone(), rcpt)
                     .await
-                    .map(|state| SmtpState::DATA(state))?
+                    .map(SmtpState::DATA)?
             },
             
             (SmtpState::DATA(state), _) => {
@@ -939,8 +942,8 @@ impl<T: IO> SmtpServer<T> {
         };
         
         match self.state {
-            SmtpState::QUIT | SmtpState::CANCELLED => Ok((self, StateKind::QUIT)),
-            _ => Ok((self, StateKind::CONTINUE))
+            SmtpState::QUIT | SmtpState::CANCELLED => Ok((self, StateKind::Quit)),
+            _ => Ok((self, StateKind::Continue))
         }
     }
     

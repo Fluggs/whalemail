@@ -25,6 +25,7 @@ static RE: sync::LazyLock<Patterns> = sync::LazyLock::new(|| Patterns {
     greeting: Regex::new(r"220 (\S+)\s*[^\r]*\r\n$").unwrap(),
 });
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Connection {
     Tls(ConnectionHandler<TlsStream<TcpStream>>),
     Tcp(ConnectionHandler<TcpStream>),
@@ -47,7 +48,7 @@ impl Connection {
 }
 
 enum SmtpState {
-    GREETING(RemoteGreeting),
+    Greeting(RemoteGreeting),
 }
 
 pub(crate) struct RemoteGreeting {
@@ -103,7 +104,7 @@ impl SmtpClient {
             config,
             envelope,
             recipient,
-            state: SmtpState::GREETING(greeting),
+            state: SmtpState::Greeting(greeting),
         }
     }
 

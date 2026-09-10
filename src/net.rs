@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{Error, ErrorKind};
+use std::io::{Error};
 use std::net::SocketAddr;
 use std::str;
 use log::{debug, info};
@@ -76,8 +76,8 @@ impl<T: IO> ConnectionHandler<T> {
                     };
 
                     smtp = match smtp.handle(v).await? {
-                        (_, StateKind::QUIT) => break,
-                        (smtp, StateKind::CONTINUE) => smtp
+                        (_, StateKind::Quit) => break,
+                        (smtp, StateKind::Continue) => smtp
                     };
                 },
             }

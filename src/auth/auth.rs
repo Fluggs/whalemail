@@ -40,6 +40,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct NotFinishedError {}
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum AuthMech {
     PLAIN,
     LOGIN,

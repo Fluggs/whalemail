@@ -4,6 +4,8 @@ use uuid::Uuid;
 use crate::config::Hostname;
 use crate::userdb::userdb::UserDBMtx;
 
+#[cfg(test)] use crate::config::hostname;
+
 #[derive(Debug)]
 pub(crate) struct InvalidMailAddress {}
 
@@ -53,16 +55,10 @@ impl MailAddress {
     pub(crate) fn is_local_responsibility(&self) -> bool {
         self.is_local_responsibility
     }
-    
+
     #[cfg(test)]
-    pub(crate) fn mock(is_local_responsibility: bool) -> MailAddress {
-        MailAddress {
-            address: String::new(),
-            local_part: String::new(),
-            domain: String::new(),
-            is_local_mailbox: None,
-            is_local_responsibility,
-        }
+    pub(crate) fn mock() -> MailAddress {
+        MailAddress::new("mock@whalemail.tld", &hostname()).unwrap()
     }
 }
 
@@ -93,16 +89,6 @@ impl Envelope {
             sender,
             recipients,
             body,
-            uuid: Uuid::new_v4(),
-        }
-    }
-    
-    #[cfg(test)]
-    pub(crate) fn dummy() -> Self {
-        Self {
-            sender: MailAddress::mock(false),
-            recipients: Vec::new(),
-            body: String::new(),
             uuid: Uuid::new_v4(),
         }
     }

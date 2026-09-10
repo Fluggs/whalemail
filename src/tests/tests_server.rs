@@ -64,7 +64,7 @@ mod tests_smtp {
         let r;
         (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
-        assert_eq!(r, StateKind::QUIT);
+        assert_eq!(r, StateKind::Quit);
 
         // Verify mail
         let mail = s.queue().lock().await.pop();
@@ -105,7 +105,7 @@ mod tests_smtp {
         let r;
         (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
-        assert_eq!(r, StateKind::QUIT);
+        assert_eq!(r, StateKind::Quit);
 
         // Verify mail
         let mail = s.queue().lock().await.pop();
@@ -150,7 +150,7 @@ mod tests_smtp {
         let r;
         (s, r) = s.handle("QUIT\r\n".to_string()).await.unwrap();
         expect_msg!(s, "221 closing channel\r\n");
-        assert_eq!(r, StateKind::QUIT);
+        assert_eq!(r, StateKind::Quit);
 
         // verify msg
         let mail = s.queue().lock().await.pop();

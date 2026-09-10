@@ -20,7 +20,7 @@ mod userdb {
 }
 
 mod queue {
-    pub(crate) mod  queue;
+    pub(crate) mod queue;
 }
 
 mod net;
@@ -64,7 +64,7 @@ async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level.clone())).init();
     
     debug!(target: "blub", "yam!");
-    let user_db = match Postgres::new(config.userdb_config.clone()).await {
+    let user_db = match Postgres::build(config.userdb_config.clone()).await {
         Ok(r) => r,
         Err(err) => panic!("Error building user db: {:?}", err)
     };
@@ -72,7 +72,7 @@ async fn main() -> io::Result<()> {
     let queue = Queue::new(config.clone());
 
     let listener = TcpListener::bind(config.bind_ip.clone()).await.inspect_err(|err| {
-        println!("Binding to {} failed.", &config.bind_ip);
+        println!("Binding to {} failed: {}", &config.bind_ip, err);
     })?;
 
     // Build TlsListener if config values for certs are provided
@@ -86,7 +86,7 @@ async fn main() -> io::Result<()> {
             let listener = TcpListener::bind(config.bind_ip_tls.clone())
                 .await
                 .inspect_err(|err| {
-                    println!("Binding to {} failed.", &config.bind_ip_tls);
+                    println!("Binding to {} failed: {}", &config.bind_ip_tls, err);
                 })?;
             
             Some(TlsListener {

@@ -13,7 +13,7 @@ pub(crate) struct Postgres {
 }
 
 impl Postgres {
-    pub(crate) async fn new(config: UserDBConfig) -> Result<UserDBMtx, Error> {
+    pub(crate) async fn build(config: UserDBConfig) -> Result<UserDBMtx, Error> {
         let (client, connection) = match
         tokio_postgres::connect(format!("host=localhost user={} password={} dbname={}",
                                         config.postgres_username,
