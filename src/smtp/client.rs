@@ -47,64 +47,25 @@ impl Connection {
     }
 }
 
-enum SmtpState {
-    Greeting(RemoteGreeting),
-}
-
-pub(crate) struct RemoteGreeting {
-    remote_host: String
-}
-
-impl RemoteGreeting {
-    /**
-    Attempts to read a remote host's SMTP greeting. Returns:
-    * `Ok(Some(RemoteGreeting))` when the remote host has sent a valid SMTP greeting
-    * `Ok(None)` when the remote host has sent anything else or nothing at all
-    * `Err(io::Error)` on IO error
-    */
-    async fn new<T: IO>(conn: &mut ConnectionHandler<T>) -> Result<Option<RemoteGreeting>, io::Error> {
-        // todo handle remote sending nothing at all (maybe via tokio timeout)
-        let s = conn.read().await?;
-        let hostname = RE.greeting.captures(s.as_str())
-            .and_then(
-                |capture| capture.get(1)
-                    .map(|host| host.as_str().to_string())
-            );
-
-        match hostname {
-            Some(hostname) => {
-                debug!("Recognized SMTP greeting: '{}'", s);
-                Ok(Some(Self {
-                    remote_host: hostname,
-                }))
-            },
-            None => {
-                debug!("Invalid SMTP greeting: '{}'", s);
-                Ok(None)
-            }
-        }
-    }
-}
-
 pub(crate) struct SmtpClient<'a> {
     conn: Connection,
     config: Config,
     envelope: &'a Envelope,
     recipients: Vec<MailAddress>,
-    state: SmtpState,
+    greeting_hostname: String,
 }
 
 impl SmtpClient<'_> {
     /**
     Creates an SMTP client with the mission to deliver an envelope to a recipient.
     */
-    fn new(conn: Connection, config: Config, envelope: &'_ Envelope, recipients: Vec<MailAddress>, greeting: RemoteGreeting) -> SmtpClient<'_> {
+    fn new(conn: Connection, config: Config, envelope: &'_ Envelope, recipients: Vec<MailAddress>, greeting_hostname: String) -> SmtpClient<'_> {
         SmtpClient {
             conn,
             config,
             envelope,
             recipients,
-            state: SmtpState::Greeting(greeting),
+            greeting_hostname,
         }
     }
 
@@ -113,8 +74,8 @@ impl SmtpClient<'_> {
     */
     pub(crate) async fn deliver(config: Config, envelope: &Envelope, recipients: Vec<MailAddress>) -> Result<(), ClientError> {
         let remote_addr = recipients.first().expect("non-empty rcpt vec").domain.as_str();
-        let (conn, greeting) = SmtpClient::discover_connection(&config, &remote_addr).await?;
-        let client = Self::new(conn, config, envelope, recipients, greeting);
+        let (conn, greeting_hostname) = SmtpClient::discover_connection(&config, remote_addr).await?;
+        let client = Self::new(conn, config, envelope, recipients, greeting_hostname);
 
         client.run().await
     }
@@ -125,7 +86,7 @@ impl SmtpClient<'_> {
 
     Returns the built connection and the initial SMTP client state in a `Result`.
     */
-    pub(crate) async fn discover_connection(config: &Config, remote_addr: &str) -> Result<(Connection, RemoteGreeting), ClientError> {
+    pub(crate) async fn discover_connection(config: &Config, remote_addr: &str) -> Result<(Connection, String), ClientError> {
         let dns_resolver = Resolver::builder_tokio()?.build();
         let mut remote_hosts = Self::lookup(&dns_resolver, remote_addr).await?;
 
@@ -190,7 +151,7 @@ impl SmtpClient<'_> {
 
     Returns None when both attempts fail.
     */
-    async fn connect(config: &Config, host: String) -> Option<(Connection, RemoteGreeting)> {
+    async fn connect(config: &Config, host: String) -> Option<(Connection, String)> {
         debug!("Trying TLS");
         let conn_try = timeout(
             Duration::from_millis(10_000),
@@ -217,7 +178,7 @@ impl SmtpClient<'_> {
     /**
     Attempts to connect to the TLS port of a host and looks for an SMTP greeting there.
     */
-    async fn connect_tls(config: &Config, host: &str) -> Option<(Connection, RemoteGreeting)>
+    async fn connect_tls(config: &Config, host: &str) -> Option<(Connection, String)>
     {
         let mut tls_host = host.to_string();
         tls_host.push_str(":465");
@@ -234,7 +195,7 @@ impl SmtpClient<'_> {
         match tls.connect(ServerName::try_from(host.to_string()).unwrap(), conn.socket).await {
             Ok(tls) => {
                 let mut conn = ConnectionHandler::new(tls, conn.addr);
-                match RemoteGreeting::new(&mut conn).await {
+                match Self::read_greeting(&mut conn).await {
                     Ok(Some(greeting)) => Some((Connection::Tls(conn), greeting)),
                     Ok(None) => None,
                     Err(err) => {
@@ -253,7 +214,7 @@ impl SmtpClient<'_> {
     /**
     Attempts to connect to the regular SMTP port of a host and looks for an SMTP greeting there.
      */
-    async fn connect_plaintext(host: &str) -> Option<(Connection, RemoteGreeting)> {
+    async fn connect_plaintext(host: &str) -> Option<(Connection, String)> {
         // Try plaintext
         let mut plain_host = host.to_string();
         plain_host.push_str(":25");
@@ -265,12 +226,39 @@ impl SmtpClient<'_> {
             }
         };
 
-        match RemoteGreeting::new(&mut conn).await {
+        match Self::read_greeting(&mut conn).await {
             Ok(Some(greeting)) => Some((Connection::Tcp(conn), greeting)),
             Ok(None) => None,
             Err(err) => {
                 debug!("No SMTP at {}: '{:?}'", plain_host, err);
                 None
+            }
+        }
+    }
+
+    /**
+    Attempts to read a remote host's SMTP greeting. Returns:
+    * `Ok(Some(hostname))` when the remote host has sent a valid SMTP greeting (which includes a stated hostname)
+    * `Ok(None)` when the remote host has sent anything else or nothing at all
+    * `Err(io::Error)` on IO error
+    */
+    async fn read_greeting<T: IO>(conn: &mut ConnectionHandler<T>) -> Result<Option<String>, io::Error> {
+        // todo handle remote sending nothing at all (maybe via tokio timeout)
+        let s = conn.read().await?;
+        let hostname = RE.greeting.captures(s.as_str())
+            .and_then(
+                |capture| capture.get(1)
+                    .map(|host| host.as_str().to_string())
+            );
+
+        match hostname {
+            Some(hostname) => {
+                debug!("Recognized SMTP greeting: '{}'", s);
+                Ok(Some(hostname))
+            },
+            None => {
+                debug!("Invalid SMTP greeting: '{}'", s);
+                Ok(None)
             }
         }
     }
@@ -288,6 +276,7 @@ impl SmtpClient<'_> {
     }
 
     pub(crate) async fn run(mut self) -> Result<(), ClientError> {
+        debug!("Delivering envelope to remote SMTP server which greeted us as '{}'", self.greeting_hostname);
         self.conn.send(format!("EHLO {}\r\n", self.config.hostname.as_str()).as_str()).await?;
         Self::expect(&mut self.conn, "250").await?;
         self.conn.send(format!("MAIL FROM:<{}>\r\n", self.envelope.sender).as_str()).await?;
