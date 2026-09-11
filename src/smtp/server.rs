@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use strum::{Display, EnumString};
 use strum_macros::{IntoStaticStr};
 use log::{debug};
+use multimap::MultiMap;
 use regex::Regex;
 use crate::config::{Config, Hostname};
 use crate::auth::auth;
@@ -128,7 +129,7 @@ pub struct ConnectionWriter<T: IO> {
 impl<T: IO> ConnectionWriter<T> {
     pub(crate) async fn send(&mut self, s: String) -> Result<(), io::Error> {
         match &mut self.conn {
-            Some(c) => Ok(c.send(s).await?),
+            Some(c) => Ok(c.send(s.as_str()).await?),
             None => {
                 debug!("Sending test message '{:?}'", s);
                 let mut r = Ok(());
@@ -680,14 +681,19 @@ impl DataState {
         envelope: &Envelope
     ) -> Result<(), MailboxDeliveryError> {
         let mut local_mailboxes: Vec<&MailAddress> = Vec::new();
+        let mut remote_mailboxes: MultiMap<&str, MailAddress> = MultiMap::new();
         for rcpt in &envelope.recipients {
             match rcpt.is_local_responsibility() {
                 true => {
                     debug!("Adding  mail for recipient '{}' to local mailbox queue", rcpt);
                     local_mailboxes.push(rcpt)
                 },
-                false => queue.lock().await.add(envelope, rcpt.clone())
+                false => remote_mailboxes.insert(rcpt.domain.as_str(), rcpt.clone())
             }
+        }
+
+        if !remote_mailboxes.is_empty() {
+            queue.lock().await.add(envelope.clone(), remote_mailboxes);
         }
 
         if !local_mailboxes.is_empty() {

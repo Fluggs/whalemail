@@ -86,7 +86,7 @@ impl<T: IO> ConnectionHandler<T> {
         Ok(())
     }
     
-    pub async fn send(&mut self, msg: String) -> io::Result<()> {
+    pub async fn send(&mut self, msg: &str) -> io::Result<()> {
         debug!("-- Sending: {:?}", msg);
         match self.socket.write(msg.as_bytes()).await? {
             n if n < msg.len() => {

@@ -7,7 +7,7 @@ mod tests_client {
     //#[tokio::test]
     async fn test_host_2() {
         let config = Config::mock();
-        SmtpClient::discover_connection(&config, &MailAddress::new("mailmail@gmail.com", &hostname()).unwrap())
+        SmtpClient::discover_connection(&config, "gmail.com")
             .await
             .unwrap();
         //todo proper assertion
@@ -16,12 +16,13 @@ mod tests_client {
 
     //#[tokio::test]
     async fn test_delivery() {
-        let mail = Envelope::new(
+        let mut mail = Envelope::new(
             MailAddress::new("sender@whalemail.tld", &hostname()).unwrap(),
             Vec::new(),
             "testmail!".to_string()
         );
-        let r = SmtpClient::deliver(Config::mock(), mail, MailAddress::new("test@test.org", &hostname()).unwrap()).await;
+        let rcpt = Vec::from([MailAddress::new("test@test.org", &hostname()).unwrap()]);
+        let r = SmtpClient::deliver(Config::mock(), &mut mail, rcpt).await;
         assert!(r.is_ok());
         assert!(false)
     }

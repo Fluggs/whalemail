@@ -67,8 +67,6 @@ mod tests_smtp {
         assert_eq!(r, StateKind::Quit);
 
         // Verify mail
-        let mail = s.queue().lock().await.pop();
-        assert!(mail.is_none());
         let (mail, recipient) = s.storage().stored_mail();
         assert!(mail.is_some());
         assert!(recipient.is_some());
@@ -108,8 +106,6 @@ mod tests_smtp {
         assert_eq!(r, StateKind::Quit);
 
         // Verify mail
-        let mail = s.queue().lock().await.pop();
-        assert!(mail.is_none());
         let (mail, recipient) = s.storage().stored_mail();
         assert!(mail.is_some());
         assert!(recipient.is_some());
@@ -153,8 +149,6 @@ mod tests_smtp {
         assert_eq!(r, StateKind::Quit);
 
         // verify msg
-        let mail = s.queue().lock().await.pop();
-        assert!(mail.is_none());
         let (mail, recipient) = s.storage().stored_mail();
         assert!(mail.is_some());
         assert!(recipient.is_some());

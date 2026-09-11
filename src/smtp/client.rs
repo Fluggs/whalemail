@@ -32,7 +32,7 @@ pub(crate) enum Connection {
 }
 
 impl Connection {
-    async fn send(&mut self, msg: String) -> Result<(), io::Error> {
+    async fn send(&mut self, msg: &str) -> Result<(), io::Error> {
         match self {
             Connection::Tcp(tcp) => tcp.send(msg).await,
             Connection::Tls(tls) => tls.send(msg).await
@@ -86,24 +86,24 @@ impl RemoteGreeting {
     }
 }
 
-pub(crate) struct SmtpClient {
+pub(crate) struct SmtpClient<'a> {
     conn: Connection,
     config: Config,
-    envelope: Envelope,
-    recipient: MailAddress,
+    envelope: &'a Envelope,
+    recipients: Vec<MailAddress>,
     state: SmtpState,
 }
 
-impl SmtpClient {
+impl SmtpClient<'_> {
     /**
     Creates an SMTP client with the mission to deliver an envelope to a recipient.
     */
-    fn new(conn: Connection, config: Config, envelope: Envelope, recipient: MailAddress, greeting: RemoteGreeting) -> SmtpClient {
+    fn new(conn: Connection, config: Config, envelope: &'_ Envelope, recipients: Vec<MailAddress>, greeting: RemoteGreeting) -> SmtpClient<'_> {
         SmtpClient {
             conn,
             config,
             envelope,
-            recipient,
+            recipients,
             state: SmtpState::Greeting(greeting),
         }
     }
@@ -111,9 +111,10 @@ impl SmtpClient {
     /**
     Delivers an envelope to a recipient.
     */
-    pub(crate) async fn deliver(config: Config, envelope: Envelope, recipient: MailAddress) -> Result<(), ClientError>{
-        let (conn, greeting) = SmtpClient::discover_connection(&config, &recipient).await?;
-        let client = Self::new(conn, config, envelope, recipient, greeting);
+    pub(crate) async fn deliver(config: Config, envelope: &Envelope, recipients: Vec<MailAddress>) -> Result<(), ClientError> {
+        let remote_addr = recipients.first().expect("non-empty rcpt vec").domain.as_str();
+        let (conn, greeting) = SmtpClient::discover_connection(&config, &remote_addr).await?;
+        let client = Self::new(conn, config, envelope, recipients, greeting);
 
         client.run().await
     }
@@ -124,9 +125,9 @@ impl SmtpClient {
 
     Returns the built connection and the initial SMTP client state in a `Result`.
     */
-    pub(crate) async fn discover_connection(config: &Config, recipient: &MailAddress) -> Result<(Connection, RemoteGreeting), ClientError> {
+    pub(crate) async fn discover_connection(config: &Config, remote_addr: &str) -> Result<(Connection, RemoteGreeting), ClientError> {
         let dns_resolver = Resolver::builder_tokio()?.build();
-        let mut remote_hosts = Self::lookup(&dns_resolver, recipient).await?;
+        let mut remote_hosts = Self::lookup(&dns_resolver, remote_addr).await?;
 
         while let Some(host) = Self::pop_host(&mut remote_hosts) {
             if let Some(res) = Self::connect(config, host).await {
@@ -141,8 +142,8 @@ impl SmtpClient {
     Performs MX DNS lookup for this mailaddress host and returns it as a multimap of the form
     preference -> exchange (which is DNS for priority -> host).
      */
-    async fn lookup(resolver: &Resolver<TokioConnectionProvider>, recipient: &MailAddress) -> Result<MultiMap<u16, String>, ResolveError> {
-        let response = resolver.mx_lookup(recipient.domain.as_str()).await?;
+    async fn lookup(resolver: &Resolver<TokioConnectionProvider>, remote_addr: &str) -> Result<MultiMap<u16, String>, ResolveError> {
+        let response = resolver.mx_lookup(remote_addr).await?;
         let mut lookup = MultiMap::new();
         response.iter().for_each(
             |mx| {
@@ -287,23 +288,23 @@ impl SmtpClient {
     }
 
     pub(crate) async fn run(mut self) -> Result<(), ClientError> {
-        self.conn.send(format!("EHLO {}\r\n", self.config.hostname.as_str()).to_string()).await?;
+        self.conn.send(format!("EHLO {}\r\n", self.config.hostname.as_str()).as_str()).await?;
         Self::expect(&mut self.conn, "250").await?;
-        self.conn.send(format!("MAIL FROM:<{}>\r\n", self.envelope.sender).to_string()).await?;
+        self.conn.send(format!("MAIL FROM:<{}>\r\n", self.envelope.sender).as_str()).await?;
         Self::expect(&mut self.conn, "250").await?;
 
-        for rcpt in &mut self.envelope.recipients {
-            self.conn.send(format!("RCPT TO:<{}>\r\n", rcpt).to_string()).await?;
+        for rcpt in self.recipients.iter() {
+            self.conn.send(format!("RCPT TO:<{}>\r\n", rcpt).as_str()).await?;
             Self::expect(&mut self.conn, "250").await?;
         }
 
-        self.conn.send("DATA\r\n".to_string()).await?;
+        self.conn.send("DATA\r\n").await?;
         Self::expect(&mut self.conn, "354").await?;
-        self.conn.send(self.envelope.body).await?;
+        self.conn.send(self.envelope.body.as_str()).await?;
         Self::expect(&mut self.conn, "250").await?;
 
         // previous 250 acknowledged successful mail delivery, so here we ignore the result
-        let _ = self.conn.send("QUIT\r\n".to_string()).await;
+        let _ = self.conn.send("QUIT\r\n").await;
 
         Ok(())
     }
