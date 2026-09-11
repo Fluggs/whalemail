@@ -3,56 +3,58 @@ use rustls_pki_types::{pem, CertificateDer, PrivateKeyDer};
 use rustls_pki_types::pem::PemObject;
 use rustls::{RootCertStore, ServerConfig};
 use std::{fs, io};
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use log::debug;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use crate::config::Config;
 
 #[derive(Debug)]
-struct CertErr {
-    pub(crate) message: Option<String>,
-    pub(crate) from_io_err: Option<io::Error>,
-    pub(crate) from_pem_err: Option<pem::Error>,
+#[allow(clippy::enum_variant_names)]
+enum CertError {
+    IoError(io::Error),
+    PemError(pem::Error),
+    OsError(String),
 }
 
-impl From<io::Error> for CertErr {
+impl Display for CertError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CertError::IoError(err) => write!(f, "IO error: {}", err)?,
+            CertError::PemError(err) => write!(f, "PEM error: {}", err)?,
+            CertError::OsError(msg) => write!(f, "{}", msg)?,
+        }
+
+        Ok(())
+    }
+}
+
+impl From<io::Error> for CertError {
     fn from(err: io::Error) -> Self {
-        Self {
-            message: None,
-            from_io_err: Some(err),
-            from_pem_err: None,
-        }
+        CertError::IoError(err)
     }
 }
 
-impl From<pem::Error> for CertErr {
+impl From<pem::Error> for CertError {
     fn from(err: pem::Error) -> Self {
-        Self {
-            message: None,
-            from_io_err: None,
-            from_pem_err: Some(err),
-        }
+        CertError::PemError(err)
     }
 }
 
 
-impl CertErr {
-    fn new(message: String) -> Self {
-        Self {
-            message: Some(message),
-            from_io_err: None,
-            from_pem_err: None,
-        }
+impl CertError {
+    fn new(msg: String) -> Self {
+        CertError::OsError(msg)
     }
 }
 
-fn read_ca_certs(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertErr> {
+fn read_ca_certs(trusted_ca_cert_dir: String) -> Result<RootCertStore, CertError> {
     let mut ca_certs: Vec<CertificateDer> = Vec::new();
     for el in fs::read_dir(&trusted_ca_cert_dir)? {
         let dir_entry = &el?;
         let file_name = dir_entry.file_name()
             .to_str()
-            .ok_or(CertErr::new(format!("Unable to read file name from '{}'", trusted_ca_cert_dir)))?
+            .ok_or(CertError::new(format!("Unable to read file name from '{}'", trusted_ca_cert_dir)))?
             .to_string();
 
         if file_name.ends_with(".pem") {
@@ -120,7 +122,8 @@ pub(crate) fn build_tls_acceptor(cert_dir: String, trusted_ca_cert_dir: String) 
 pub(crate) fn build_tls_connector(config: &Config) -> TlsConnector {
     let cert_dir = config.cert_dir.clone().expect("TLS certificate directory not configured");
     let trusted_ca_cert_dir = config.trusted_ca_cert_dir.clone().expect("TLS root cert directory not configured");
-    let root_cert_store = read_ca_certs(trusted_ca_cert_dir).expect("Error reading ca cert dir");
+    let root_cert_store = read_ca_certs(trusted_ca_cert_dir)
+        .unwrap_or_else(|err| panic!("Error reading ca cert dir: {}", err));
 
     debug!("Root cert store: {:?}", root_cert_store);
 
