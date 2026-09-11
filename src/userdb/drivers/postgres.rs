@@ -45,7 +45,20 @@ impl Postgres {
 
 impl UserDB for Postgres {
     fn authenticate(&self, authorized: &Authorized, password: String) -> Result<bool, Error> {
-        let user_addr = MailAddress::new(authorized.username.as_str(), &self.hostname).unwrap();
+        let user_addr = match MailAddress::new(authorized.username.as_str(), &self.hostname) {
+            Ok(r) => r,
+            Err(_) => {
+                let addr = format!("{}@{}", authorized.username.as_str(), &self.hostname);
+                match MailAddress::new(addr.as_str(), &self.hostname) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        debug!("Invalid mail address: {}", addr);
+                        return Ok(false);
+                    }
+                }
+            },
+        };
+
         let runtime = tokio::runtime::Handle::current();
         let rows = tokio::task::block_in_place(move ||
             runtime.block_on(self.client

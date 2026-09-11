@@ -12,6 +12,12 @@ impl PartialEq<String> for Hostname {
     }
 }
 
+impl Display for Hostname {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl Hostname {
     pub(crate) fn as_str(&self) -> &str {
         self.0.as_str()
