@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 use log::debug;
 use uuid::Uuid;
 use crate::config::Hostname;
-use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::UserDBMtx;
 
 #[cfg(test)] use crate::config::hostname;
 

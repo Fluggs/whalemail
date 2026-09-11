@@ -5,11 +5,11 @@ use std::str;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
-use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::UserDBMtx;
 use crate::config::Config;
 use crate::smtp::server::{SmtpServer, StateKind};
 use crate::maildir::Storage;
-use crate::queue::queue::QueueMtx;
+use crate::queue::QueueMtx;
 
 pub trait IO: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin> IO for T {}

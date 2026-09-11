@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 use log::debug;
-use crate::auth::auth::Authorized;
+use crate::auth::Authorized;
 use crate::config::hostname;
 use crate::smtp::envelope::MailAddress;
-use crate::userdb::userdb::{Error, UserDB, UserDBMtx};
+use crate::userdb::{Error, UserDB, UserDBMtx};
 
 pub(crate) struct MockDB {
     pub(crate) username: String,

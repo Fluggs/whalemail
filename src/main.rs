@@ -6,23 +6,9 @@ mod smtp {
     pub(crate) mod envelope;
 }
 
-mod auth {
-    pub(crate) mod auth;
-}
-
-mod userdb {
-    pub(crate) mod drivers {
-        pub(crate) mod postgres;
-        #[cfg(test)]
-        pub(crate) mod mock_db;
-    }
-    pub(crate) mod userdb;
-}
-
-mod queue {
-    pub(crate) mod queue;
-}
-
+mod auth;
+mod userdb;
+mod queue;
 mod net;
 mod maildir;
 mod config;
@@ -42,10 +28,10 @@ use std::net::SocketAddr;
 use net::ConnectionHandler;
 use log::{debug};
 use tokio_rustls::TlsAcceptor;
-use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::UserDBMtx;
 use crate::config::Config;
 use crate::net::IO;
-use crate::queue::queue::{Queue, QueueMtx};
+use crate::queue::{Queue, QueueMtx};
 use crate::userdb::drivers::postgres::Postgres;
 
 struct TlsListener {

@@ -58,7 +58,7 @@ pub mod test {
     use crate::net::IO;
     use crate::smtp::server::{ehlo_response, SmtpServer};
     use crate::maildir::Storage;
-    use crate::queue::queue::Queue;
+    use crate::queue::Queue;
     use crate::tests::test::{SmtpTest};
 
     pub(crate) fn ehlo_msg(s: &SmtpServer<TcpStream>) -> String {

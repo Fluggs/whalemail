@@ -13,7 +13,7 @@ use log::{debug, info};
 use regex::Regex;
 use tokio::io;
 use crate::config::Hostname;
-use crate::userdb::userdb::UserDBMtx;
+use crate::userdb::UserDBMtx;
 use crate::net::IO;
 use crate::smtp::server::ConnectionWriter;
 use crate::user::User;

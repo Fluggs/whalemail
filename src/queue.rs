@@ -38,7 +38,7 @@ impl Queue {
     holds for every entry.
     */
     pub(crate) fn add(&mut self, envelope: Envelope, mut recipients: MultiMap<&str, MailAddress>) {
-        let domains: Vec<&str> = recipients.keys().map(|key| *key).collect();
+        let domains: Vec<&str> = recipients.keys().copied().collect();
         if domains.is_empty() { return }
 
         let mut rcpt_groups: Vec<Vec<MailAddress>> = Vec::new();

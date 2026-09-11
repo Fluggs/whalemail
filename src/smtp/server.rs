@@ -7,14 +7,14 @@ use log::{debug};
 use multimap::MultiMap;
 use regex::Regex;
 use crate::config::{Config, Hostname};
-use crate::auth::auth;
-use crate::userdb::userdb::UserDBMtx;
+use crate::auth;
+use crate::userdb::UserDBMtx;
 use crate::net::{ConnectionHandler, IO};
 use crate::tests::test::SmtpTest;
 use crate::smtp::error::MailboxDeliveryError;
 use crate::smtp::envelope::{Envelope, MailAddress};
 use crate::maildir::Storage;
-use crate::queue::queue::QueueMtx;
+use crate::queue::QueueMtx;
 use crate::user::User;
 
 static MSG_INVALID_MAILBOX: &str = "450 Invalid mailbox\r\n";

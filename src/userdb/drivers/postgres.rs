@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 use log::{debug, error};
 use tokio_postgres::{Client, NoTls};
-use crate::auth::auth::Authorized;
+use crate::auth::Authorized;
 use crate::config::{Hostname, UserDBConfig};
 use crate::smtp::envelope::MailAddress;
-use crate::userdb::userdb::{Error, UserDBMtx, UserDB};
+use crate::userdb::{Error, UserDBMtx, UserDB};
 
 pub(crate) struct Postgres {
     hostname: Hostname,

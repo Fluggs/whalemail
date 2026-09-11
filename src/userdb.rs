@@ -1,7 +1,9 @@
+pub(crate) mod drivers;
+
 use std::sync::{Arc, Mutex};
 use std::error;
 use std::fmt::{Display, Formatter};
-use crate::auth::auth::Authorized;
+use crate::auth::Authorized;
 use crate::smtp::envelope::MailAddress;
 
 #[derive(Debug)]

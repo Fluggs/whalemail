@@ -1,4 +1,4 @@
-use crate::auth::auth::Authorized;
+use crate::auth::Authorized;
 use crate::config::Hostname;
 
 /**
